@@ -1,0 +1,210 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model AppConfig {
+  id              String    @id @default(cuid())
+  adminPinHash    String    // bcrypt hash of admin PIN
+  devicePassword  String    // bcrypt hash of device session password
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([id])
+}
+
+model Empleado {
+  id                  String    @id @default(cuid())
+  nombre              String
+  apellido            String?
+  role                String    // "recepcion" | "lavador" | "extra"
+  pinHash             String?   // bcrypt hash, null if no PIN
+  dui                 String?
+  email               String?
+  telefono            String?
+  emergenciaName      String?
+  emergenciaTelefono  String?
+  horario             String?
+  sueldoQuincenal     Float     @default(0)
+  sueldoMensual       Float     @default(0)
+  comisionPercent     Float     @default(5)
+  comisionThreshold   Float     @default(12)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  ventasAsCajero      Venta[]   @relation("CajeroVentas")
+  itemsAsLavador      VentaItem[] @relation("LavadorItems")
+  gastosRegistrados   Gasto[]   @relation("GastoRegistrador")
+  auditLogs           AuditLog[] @relation("AuditActor")
+}
+
+model Socio {
+  id        String    @id @default(cuid())
+  numero    Int       @unique  // Correlativo
+  nombre    String
+  apellido  String?
+  email     String?
+  telefono  String?
+  contacto  String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  autos     AutoSocio[]
+  ventas    Venta[]   @relation("VentaSocio")
+  cuentas   CuentaAbierta[] @relation("CuentaSocio")
+}
+
+model AutoSocio {
+  id      String  @id @default(cuid())
+  socioId String
+  modelo  String
+
+  socio   Socio   @relation(fields: [socioId], references: [id], onDelete: Cascade)
+
+  @@index([socioId])
+}
+
+model CatalogoServicio {
+  id    String  @id @default(cuid())
+  nombre String  @unique
+  precio Float
+
+  items   VentaItem[]  @relation("ServicioItems")
+
+  @@index([nombre])
+}
+
+model CatalogoProducto {
+  id    String  @id @default(cuid())
+  nombre String  @unique
+  precio Float
+
+  items   VentaItem[]  @relation("ProductoItems")
+
+  @@index([nombre])
+}
+
+model Venta {
+  id                  String    @id @default(cuid())
+  fecha               DateTime  @default(now())
+  items               VentaItem[]
+  total               Float
+  metodoPago          String    // "efectivo" | "tarjeta" | "transferencia"
+  numeroRecibo        String
+  referencia          String?   // transferencia o POS ticket number
+  cajeroId            String
+  cajero              Empleado  @relation("CajeroVentas", fields: [cajeroId], references: [id])
+  socioId             String?
+  socio               Socio?    @relation("VentaSocio", fields: [socioId], references: [id], onDelete: SetNull)
+  anulada             Boolean   @default(false)
+  anuladaPor          String?
+  anuladaMotivo       String?
+  anuladaTime         DateTime?
+  ultimoMotivoEdicion String?   // Last reason if edited in admin
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([cajeroId])
+  @@index([socioId])
+  @@index([fecha])
+}
+
+model VentaItem {
+  id            String  @id @default(cuid())
+  ventaId       String
+  venta         Venta   @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  nombre        String
+  precio        Float
+  cantidad      Int
+  categoria     String  // "servicio" | "producto"
+
+  lavadorId     String?
+  lavador       Empleado? @relation("LavadorItems", fields: [lavadorId], references: [id], onDelete: SetNull)
+
+  servicioId    String?
+  servicio      CatalogoServicio? @relation("ServicioItems", fields: [servicioId], references: [id], onDelete: SetNull)
+
+  productoId    String?
+  producto      CatalogoProducto? @relation("ProductoItems", fields: [productoId], references: [id], onDelete: SetNull)
+
+  @@index([ventaId])
+  @@index([lavadorId])
+}
+
+model Gasto {
+  id              String    @id @default(cuid())
+  descripcion     String
+  monto           Float
+  fecha           DateTime  @default(now())
+  categoria       String    // "nomina" | "otro"
+  registradoPor   String?   // name of employee who registered
+  registradoPorId String?
+  registrador     Empleado? @relation("GastoRegistrador", fields: [registradoPorId], references: [id], onDelete: SetNull)
+  createdAt       DateTime  @default(now())
+
+  @@index([fecha])
+  @@index([categoria])
+}
+
+model CuentaAbierta {
+  id          String  @id @default(cuid())
+  etiqueta    String  // "Toyota gris - Juan" or similar
+  items       CuentaAbiertaItem[]
+  socioId     String?
+  socio       Socio?  @relation("CuentaSocio", fields: [socioId], references: [id], onDelete: SetNull)
+  fechaApertura DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([socioId])
+}
+
+model CuentaAbiertaItem {
+  id        String  @id @default(cuid())
+  cuentaId  String
+  cuenta    CuentaAbierta @relation(fields: [cuentaId], references: [id], onDelete: Cascade)
+  nombre    String
+  precio    Float
+  cantidad  Int
+  categoria String  // "servicio" | "producto"
+  lavadorId String?
+  lavadorNombre String?
+
+  @@index([cuentaId])
+}
+
+model CierreDeCaja {
+  id              String  @id @default(cuid())
+  fecha           DateTime
+  totalVentas     Float
+  totalGastos     Float
+  neto            Float
+  ventasCount     Int
+  byPayEffectivo  Float   @default(0)
+  byPayTarjeta    Float   @default(0)
+  byPayTransferencia Float @default(0)
+  cerradoPor      String  // name of who closed
+  createdAt       DateTime @default(now())
+
+  @@unique([fecha])
+  @@index([fecha])
+}
+
+model AuditLog {
+  id      String    @id @default(cuid())
+  fecha   DateTime  @default(now())
+  actor   String    // name real
+  accion  String
+  detalle String?
+  actorId String?
+  actorEmp Empleado? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([fecha])
+  @@index([accion])
+}
