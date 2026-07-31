@@ -1,6 +1,6 @@
-import express from 'express'
+import express, { Request, Response, NextFunction } from 'express'
 import cors from 'cors'
-import session from 'express-session'
+import session, { SessionData } from 'express-session'
 import { PrismaClient } from '@prisma/client'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -13,6 +13,13 @@ import { adminRouter } from './routes/admin'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
 const prisma = new PrismaClient()
+
+declare module 'express-session' {
+  interface SessionData {
+    authenticated?: boolean
+    loginTime?: number
+  }
+}
 
 // Middleware
 app.use(cors())
@@ -29,16 +36,6 @@ app.use(
     },
   })
 )
-
-// Declare session types
-declare global {
-  namespace Express {
-    interface Session {
-      authenticated: boolean
-      loginTime: number
-    }
-  }
-}
 
 // Auth middleware
 export const requireAuth = (

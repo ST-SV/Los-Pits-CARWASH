@@ -202,3 +202,258 @@ main {
 .toast.show {
   opacity: 1;
 }
+
+.toast.toast-success {
+  background: var(--green);
+  color: #0a1f14;
+}
+
+.toast.toast-error {
+  background: var(--red);
+  color: white;
+}
+
+.toast.toast-info {
+  background: var(--yellow);
+  color: #0a1f14;
+}
+
+.cart-summary {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  margin-top: 20px;
+}
+
+.cart-items {
+  max-height: 300px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.cart-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  gap: 8px;
+}
+
+.cart-item .item-name {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.cart-item .item-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.qty-btn {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0;
+}
+
+.qty {
+  min-width: 20px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.item-price {
+  font-family: monospace;
+  color: var(--yellow);
+  font-size: 12px;
+  min-width: 50px;
+  text-align: right;
+}
+
+.remove-btn {
+  background: var(--red);
+  border: none;
+  color: white;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+  padding: 0;
+  font-size: 12px;
+}
+
+.cart-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background: var(--panel-2);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.total-amount {
+  font-family: monospace;
+  color: var(--yellow);
+  font-size: 16px;
+}
+
+.checkout-btn {
+  width: 100%;
+  background: var(--green);
+  border: none;
+  color: #0a1f14;
+  padding: 12px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  text-transform: uppercase;
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 20px;
+  max-width: 400px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.modal h2 {
+  margin-top: 0;
+}
+
+.form-group {
+  margin-bottom: 14px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.form-group select,
+.form-group input {
+  width: 100%;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  padding: 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.form-group select:focus,
+.form-group input:focus {
+  outline: none;
+  border-color: var(--yellow);
+}
+
+.payment-methods {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.radio-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  flex: 1;
+  min-width: 100px;
+}
+
+.radio-option input {
+  margin: 0;
+  width: auto;
+}
+
+.radio-option span {
+  font-size: 13px;
+}
+
+.capitalize {
+  text-transform: capitalize;
+}
+
+.modal-total {
+  background: var(--panel-2);
+  padding: 12px;
+  border-radius: 8px;
+  text-align: center;
+  font-weight: 600;
+  margin-bottom: 14px;
+  font-size: 14px;
+}
+
+.modal-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-cancel,
+.btn-confirm {
+  flex: 1;
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: opacity 0.2s;
+}
+
+.btn-cancel {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+
+.btn-confirm {
+  background: var(--green);
+  color: #0a1f14;
+}
+
+.btn-confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

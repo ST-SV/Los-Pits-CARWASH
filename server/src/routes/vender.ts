@@ -24,67 +24,103 @@ router.get('/catalogo', async (req: Request, res: Response) => {
 // POST venta (crear venta con PIN confirm)
 router.post('/venta', async (req: Request, res: Response) => {
   try {
-    const {
-      items,
-      total,
-      metodoPago,
-      numeroRecibo,
-      referencia,
-      cajeroId,
-      cajeroPin,
-      socioId,
-    } = req.body
+    const { items, metodoPago, empleadoId, pin, socioId } = req.body
 
-    if (!items || !total || !metodoPago || !numeroRecibo || !cajeroId || !cajeroPin) {
+    if (!items || !metodoPago || !empleadoId || !pin) {
       return res.status(400).json({ error: 'Missing required fields' })
     }
 
-    // Verify cajero exists and PIN is correct
-    const cajero = await prisma.empleado.findUnique({
-      where: { id: cajeroId },
+    // Verify empleado exists and PIN is correct
+    const empleado = await prisma.empleado.findUnique({
+      where: { id: empleadoId },
     })
 
-    if (!cajero || !cajero.pinHash) {
-      return res.status(400).json({ error: 'Cajero not found or has no PIN' })
+    if (!empleado || !empleado.pinHash) {
+      return res.status(400).json({ error: 'Empleado not found or has no PIN' })
     }
 
-    const pinMatch = await verifyPin(cajeroPin, cajero.pinHash)
+    const pinMatch = await verifyPin(pin, empleado.pinHash)
     if (!pinMatch) {
       return res.status(401).json({ error: 'Invalid PIN' })
     }
 
+    // Fetch items from catalog to calculate total
+    const ventaItems: any[] = []
+    let total = 0
+
+    for (const item of items) {
+      if (item.catalogoServicioId) {
+        const servicio = await prisma.catalogoServicio.findUnique({
+          where: { id: item.catalogoServicioId },
+        })
+        if (!servicio) {
+          return res.status(404).json({ error: `Servicio ${item.catalogoServicioId} not found` })
+        }
+        ventaItems.push({
+          nombre: servicio.nombre,
+          precio: servicio.precio,
+          cantidad: item.cantidad,
+          categoria: 'servicio',
+        })
+        total += servicio.precio * item.cantidad
+      } else if (item.catalogoProductoId) {
+        const producto = await prisma.catalogoProducto.findUnique({
+          where: { id: item.catalogoProductoId },
+        })
+        if (!producto) {
+          return res.status(404).json({ error: `Producto ${item.catalogoProductoId} not found` })
+        }
+        ventaItems.push({
+          nombre: producto.nombre,
+          precio: producto.precio,
+          cantidad: item.cantidad,
+          categoria: 'producto',
+        })
+        total += producto.precio * item.cantidad
+      }
+    }
+
+    // Generate recibo number
+    const today = new Date().toISOString().split('T')[0]
+    const lastVenta = await prisma.venta.findFirst({
+      where: {
+        createdAt: {
+          gte: new Date(today),
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+    const numeroRecibo = lastVenta
+      ? parseInt(lastVenta.numeroRecibo.split('-')[1]) + 1
+      : 1
+    const recibo = `${today}-${numeroRecibo}`
+
     // Create venta
     const venta = await prisma.venta.create({
       data: {
-        numeroRecibo,
-        referencia,
+        numeroRecibo: recibo,
         total,
         metodoPago,
-        cajeroId,
+        cajeroId: empleadoId,
         socioId: socioId || null,
         items: {
-          create: items.map((item: any) => ({
-            nombre: item.nombre,
-            precio: item.precio,
-            cantidad: item.cantidad,
-            categoria: item.categoria,
-            lavadorId: item.lavadorId || null,
-          })),
+          create: ventaItems,
         },
       },
       include: {
         items: true,
+        cajero: true,
       },
     })
 
     // Log audit
-    const itemsResumen = venta.items.map((it) => `${it.cantidad}x ${it.nombre}`).join(', ')
+    const itemsResumen = venta.items.map((it: any) => `${it.cantidad}x ${it.nombre}`).join(', ')
     await prisma.auditLog.create({
       data: {
-        actor: cajero.nombre,
+        actor: empleado.nombre,
         accion: 'Venta registrada',
-        detalle: `Recibo ${numeroRecibo} · $${total.toFixed(2)} · ${metodoPago} · ${itemsResumen}`,
-        actorId: cajeroId,
+        detalle: `Recibo ${recibo} · $${total.toFixed(2)} · ${metodoPago} · ${itemsResumen}`,
+        actorId: empleadoId,
       },
     })
 
@@ -236,7 +272,7 @@ router.post('/cuentas/:id/checkout', async (req: Request, res: Response) => {
     }
 
     // Calculate total
-    const total = cuenta.items.reduce((sum, item) => sum + item.precio * item.cantidad, 0)
+    const total = cuenta.items.reduce((sum: number, item: any) => sum + item.precio * item.cantidad, 0)
 
     // Create venta from cuenta
     const venta = await prisma.venta.create({
@@ -248,7 +284,7 @@ router.post('/cuentas/:id/checkout', async (req: Request, res: Response) => {
         cajeroId,
         socioId: cuenta.socioId,
         items: {
-          create: cuenta.items.map((item) => ({
+          create: cuenta.items.map((item: any) => ({
             nombre: item.nombre,
             precio: item.precio,
             cantidad: item.cantidad,
@@ -266,7 +302,7 @@ router.post('/cuentas/:id/checkout', async (req: Request, res: Response) => {
     })
 
     // Log audit
-    const itemsResumen = venta.items.map((it) => `${it.cantidad}x ${it.nombre}`).join(', ')
+    const itemsResumen = venta.items.map((it: any) => `${it.cantidad}x ${it.nombre}`).join(', ')
     await prisma.auditLog.create({
       data: {
         actor: cajero.nombre,

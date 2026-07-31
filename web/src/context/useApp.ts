@@ -1,11 +1,12 @@
-import { createContext, useContext, useState, useCallback } from 'react'
+import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react'
 
-interface CartItem {
+export interface CartItem {
   id: string
   nombre: string
   precio: number
   cantidad: number
-  categoria: string
+  tipo?: 'servicio' | 'producto' | 'cuenta'
+  categoria?: string
   lavadorId?: string
   lavadorNombre?: string
 }
@@ -14,50 +15,69 @@ interface AppContextType {
   authenticated: boolean
   setAuthenticated: (v: boolean) => void
   cart: CartItem[]
-  addToCart: (item: CartItem) => void
-  removeFromCart: (id: string) => void
+  addToCart: (item: Omit<CartItem, 'cantidad'>) => void
+  removeFromCart: (index: number) => void
+  updateCartQty: (index: number, cantidad: number) => void
   clearCart: () => void
-  toast: (msg: string) => void
+  toast: (msg: string, type?: 'success' | 'error' | 'info') => void
 }
 
 export const AppContext = createContext<AppContextType | null>(null)
 
-export const AppProvider = ({ children }: { children: React.ReactNode }) => {
+export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [authenticated, setAuthenticated] = useState(false)
   const [cart, setCart] = useState<CartItem[]>([])
 
-  const addToCart = useCallback((item: CartItem) => {
+  const addToCart = useCallback((item: Omit<CartItem, 'cantidad'>) => {
     setCart((prev) => {
-      const existing = prev.find((c) => c.id === item.id)
-      if (existing) {
-        return prev.map((c) => (c.id === item.id ? { ...c, cantidad: c.cantidad + 1 } : c))
+      const existing = prev.findIndex((c) => c.id === item.id && c.tipo === item.tipo)
+      if (existing >= 0) {
+        const newCart = [...prev]
+        newCart[existing].cantidad += 1
+        return newCart
       }
-      return [...prev, item]
+      return [...prev, { ...item, cantidad: 1 }]
     })
   }, [])
 
-  const removeFromCart = useCallback((id: string) => {
-    setCart((prev) => prev.filter((c) => c.id !== id))
+  const removeFromCart = useCallback((index: number) => {
+    setCart((prev) => prev.filter((_, i) => i !== index))
+  }, [])
+
+  const updateCartQty = useCallback((index: number, cantidad: number) => {
+    if (cantidad <= 0) return
+    setCart((prev) => {
+      const newCart = [...prev]
+      newCart[index].cantidad = cantidad
+      return newCart
+    })
   }, [])
 
   const clearCart = useCallback(() => {
     setCart([])
   }, [])
 
-  const toast = useCallback((msg: string) => {
+  const toast = useCallback((msg: string, type = 'info') => {
     const el = document.getElementById('toast')
     if (el) {
       el.textContent = msg
-      el.classList.add('show')
+      el.className = `toast show toast-${type}`
       setTimeout(() => el.classList.remove('show'), 1800)
     }
   }, [])
 
-  return (
-    <AppContext.Provider value={{ authenticated, setAuthenticated, cart, addToCart, removeFromCart, clearCart, toast }}>
-      {children}
-    </AppContext.Provider>
-  )
+  const value: AppContextType = {
+    authenticated,
+    setAuthenticated,
+    cart,
+    addToCart,
+    removeFromCart,
+    updateCartQty,
+    clearCart,
+    toast,
+  }
+
+  return React.createElement(AppContext.Provider, { value }, children)
 }
 
 export const useApp = () => {

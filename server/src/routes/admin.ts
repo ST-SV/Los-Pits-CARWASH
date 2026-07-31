@@ -48,14 +48,14 @@ router.get('/historial', async (req: Request, res: Response) => {
       }),
     ])
 
-    let weekSales = ventasHoy.reduce((s, v) => s + v.total, 0)
-    let weekNet = weekSales - gastosHoy.reduce((s, g) => s + g.monto, 0)
+    let weekSales = ventasHoy.reduce((s: number, v: any) => s + v.total, 0)
+    let weekNet = weekSales - gastosHoy.reduce((s: number, g: any) => s + g.monto, 0)
     let fortSales = weekSales
     let fortNet = weekNet
     let monthSales = weekSales
     let monthNet = weekNet
 
-    historial.forEach((d) => {
+    historial.forEach((d: any) => {
       const dd = new Date(d.fecha)
       if (dd >= weekAgo) {
         weekSales += d.totalVentas
@@ -110,16 +110,16 @@ router.get('/contabilidad', async (req: Request, res: Response) => {
       }),
     ])
 
-    const hoyVentas = ventasHoy.reduce((s, v) => s + v.total, 0)
-    const hoyGastos = gastosHoy.reduce((s, g) => s + g.monto, 0)
-    const hoyNomina = gastosHoy.filter((g) => g.categoria === 'nomina').reduce((s, g) => s + g.monto, 0)
-    const hoyOtros = gastosHoy.filter((g) => g.categoria !== 'nomina').reduce((s, g) => s + g.monto, 0)
+    const hoyVentas = ventasHoy.reduce((s: number, v: any) => s + v.total, 0)
+    const hoyGastos = gastosHoy.reduce((s: number, g: any) => s + g.monto, 0)
+    const hoyNomina = gastosHoy.filter((g: any) => g.categoria === 'nomina').reduce((s: number, g: any) => s + g.monto, 0)
+    const hoyOtros = gastosHoy.filter((g: any) => g.categoria !== 'nomina').reduce((s: number, g: any) => s + g.monto, 0)
 
     let accIngresos = hoyVentas
     let accNomina = hoyNomina
     let accOtros = hoyOtros
 
-    historial.forEach((d) => {
+    historial.forEach((d: any) => {
       accIngresos += d.totalVentas
       // Parse gastos from cierre (needs refactor but works for now)
     })

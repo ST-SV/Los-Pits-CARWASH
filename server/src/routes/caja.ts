@@ -36,8 +36,8 @@ router.get('/resumen', async (req: Request, res: Response) => {
       }),
     ])
 
-    const totalVentas = ventasActivas.reduce((sum, v) => sum + v.total, 0)
-    const totalGastos = gastos.reduce((sum, g) => sum + g.monto, 0)
+    const totalVentas = ventasActivas.reduce((sum: number, v: any) => sum + v.total, 0)
+    const totalGastos = gastos.reduce((sum: number, g: any) => sum + g.monto, 0)
     const neto = totalVentas - totalGastos
 
     const byPay = {
@@ -46,7 +46,7 @@ router.get('/resumen', async (req: Request, res: Response) => {
       transferencia: 0,
     }
 
-    ventasActivas.forEach((v) => {
+    ventasActivas.forEach((v: any) => {
       ;(byPay as any)[v.metodoPago] = ((byPay as any)[v.metodoPago] || 0) + v.total
     })
 
@@ -212,7 +212,7 @@ router.post('/venta/:id/anular', async (req: Request, res: Response) => {
     })
 
     // Log audit
-    const itemsResumen = venta.items.map((it) => `${it.cantidad}x ${it.nombre}`).join(', ')
+    const itemsResumen = venta.items.map((it: any) => `${it.cantidad}x ${it.nombre}`).join(', ')
     await prisma.auditLog.create({
       data: {
         actor: empleado.nombre,
@@ -278,8 +278,8 @@ router.post('/cerrar', async (req: Request, res: Response) => {
       }),
     ])
 
-    const totalVentas = ventasActivas.reduce((sum, v) => sum + v.total, 0)
-    const totalGastos = gastos.reduce((sum, g) => sum + g.monto, 0)
+    const totalVentas = ventasActivas.reduce((sum: number, v: any) => sum + v.total, 0)
+    const totalGastos = gastos.reduce((sum: number, g: any) => sum + g.monto, 0)
     const neto = totalVentas - totalGastos
 
     const byPay = {
@@ -288,7 +288,7 @@ router.post('/cerrar', async (req: Request, res: Response) => {
       transferencia: 0,
     }
 
-    ventasActivas.forEach((v) => {
+    ventasActivas.forEach((v: any) => {
       ;(byPay as any)[v.metodoPago] = ((byPay as any)[v.metodoPago] || 0) + v.total
     })
 

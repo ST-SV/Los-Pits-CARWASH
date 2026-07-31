@@ -7,7 +7,7 @@ import Socios from './pages/Socios'
 import Admin from './pages/Admin'
 
 function AppContent() {
-  const { authenticated } = useApp()
+  const { authenticated, setAuthenticated } = useApp()
   const [activeTab, setActiveTab] = useState<'vender' | 'caja' | 'socios' | 'admin'>('vender')
   const [loading, setLoading] = useState(true)
 
@@ -16,9 +16,13 @@ function AppContent() {
     fetch('/api/auth/check')
       .then(r => r.json())
       .then(data => {
+        if (data.authenticated) {
+          setAuthenticated(true)
+        }
         setLoading(false)
       })
-  }, [])
+      .catch(() => setLoading(false))
+  }, [setAuthenticated])
 
   if (loading) {
     return <div className="loading">Cargando caja de Los Pits...</div>
