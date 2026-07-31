@@ -4,6 +4,11 @@ import session from 'express-session'
 import { PrismaClient } from '@prisma/client'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { authRouter } from './routes/auth'
+import { venderRouter } from './routes/vender'
+import { cajaRouter } from './routes/caja'
+import { sociosRouter } from './routes/socios'
+import { adminRouter } from './routes/admin'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -36,7 +41,11 @@ declare global {
 }
 
 // Auth middleware
-const requireAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+export const requireAuth = (
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+) => {
   if (!req.session?.authenticated) {
     return res.status(401).json({ error: 'Not authenticated' })
   }
@@ -44,32 +53,12 @@ const requireAuth = (req: express.Request, res: express.Response, next: express.
 }
 
 // Routes
-app.get('/api/auth/check', (req, res) => {
-  res.json({ authenticated: !!req.session?.authenticated })
-})
+app.use('/api/auth', authRouter)
+app.use('/api/vender', requireAuth, venderRouter)
+app.use('/api/caja', requireAuth, cajaRouter)
+app.use('/api/socios', requireAuth, sociosRouter)
+app.use('/api/admin', requireAuth, adminRouter)
 
-app.post('/api/auth/login', express.json(), async (req, res) => {
-  const { password } = req.body
-  const devicePassword = process.env.DEVICE_PASSWORD || 'admin'
-
-  if (password !== devicePassword) {
-    return res.status(401).json({ error: 'Invalid password' })
-  }
-
-  req.session.authenticated = true
-  req.session.loginTime = Date.now()
-  await req.session.save()
-  res.json({ success: true })
-})
-
-app.post('/api/auth/logout', (req, res) => {
-  req.session.destroy((err) => {
-    if (err) return res.status(500).json({ error: 'Logout failed' })
-    res.json({ success: true })
-  })
-})
-
-// Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' })
 })
