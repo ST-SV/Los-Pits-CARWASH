@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express'
 import { PrismaClient } from '@prisma/client'
-import { verifyPin } from '../utils/auth'
+import { verifyPin } from '../utils/auth.js'
 
 const router = Router()
 const prisma = new PrismaClient()
@@ -350,8 +350,8 @@ router.get('/socios', async (req: Request, res: Response) => {
       where: query
         ? {
             OR: [
-              { nombre: { contains: query, mode: 'insensitive' } },
-              { apellido: { contains: query, mode: 'insensitive' } },
+              { nombre: { contains: query } },
+              { apellido: { contains: query } },
               { numero: parseInt(query) || undefined },
             ],
           }

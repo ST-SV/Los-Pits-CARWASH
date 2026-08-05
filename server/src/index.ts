@@ -4,11 +4,11 @@ import session, { SessionData } from 'express-session'
 import { PrismaClient } from '@prisma/client'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { authRouter } from './routes/auth'
-import { venderRouter } from './routes/vender'
-import { cajaRouter } from './routes/caja'
-import { sociosRouter } from './routes/socios'
-import { adminRouter } from './routes/admin'
+import { authRouter } from './routes/auth.js'
+import { venderRouter } from './routes/vender.js'
+import { cajaRouter } from './routes/caja.js'
+import { sociosRouter } from './routes/socios.js'
+import { adminRouter } from './routes/admin.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()

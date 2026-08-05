@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express'
 import { PrismaClient } from '@prisma/client'
-import { hashPassword, verifyPassword } from '../utils/auth'
+import { hashPassword, verifyPassword } from '../utils/auth.js'
 
 const router = Router()
 const prisma = new PrismaClient()
