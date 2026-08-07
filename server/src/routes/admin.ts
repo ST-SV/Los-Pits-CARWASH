@@ -618,7 +618,47 @@ router.put('/config/admin-pin', async (req: Request, res: Response) => {
 
     res.json({ success: true })
   } catch (error) {
-    console.error('Error updating admin PIN:', error)
-    res.status(500).json({ error: 'Failed to update admin PIN' })
+    console.error('Error changing admin PIN:', error)
+    res.status(500).json({ error: 'Failed to change admin PIN' })
+  }
+})
+
+// CONFIG: Cambiar contraseña del dispositivo
+router.put('/config/device-password', async (req: Request, res: Response) => {
+  try {
+    const { adminPin, newPassword } = req.body
+
+    if (!adminPin || !newPassword) {
+      return res.status(400).json({ error: 'Admin PIN and new password required' })
+    }
+
+    if (!(await requireAdminPin(adminPin))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+
+    const config = await prisma.appConfig.findFirst()
+    if (!config) {
+      return res.status(500).json({ error: 'App not initialized' })
+    }
+
+    await prisma.appConfig.update({
+      where: { id: config.id },
+      data: {
+        devicePassword: await hashPassword(newPassword),
+      },
+    })
+
+    await prisma.auditLog.create({
+      data: {
+        actor: 'Administrador',
+        accion: 'Contraseña del dispositivo cambiada',
+        detalle: '',
+      },
+    })
+
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Error updating device password:', error)
+    res.status(500).json({ error: 'Failed to update device password' })
   }
 })
