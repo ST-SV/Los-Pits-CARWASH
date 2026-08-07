@@ -14,6 +14,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
 const prisma = new PrismaClient()
 
+app.set('trust proxy', 1)
+
 declare module 'express-session' {
   interface SessionData {
     authenticated?: boolean
