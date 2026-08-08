@@ -43,6 +43,29 @@ model Empleado {
   itemsAsLavador      VentaItem[] @relation("LavadorItems")
   gastosRegistrados   Gasto[]   @relation("GastoRegistrador")
   auditLogs           AuditLog[] @relation("AuditActor")
+  turnos              Turno[]   @relation("EmpleadoTurnos")
+}
+
+model Turno {
+  id          String    @id @default(cuid())
+  empleadoId  String
+  empleado    Empleado  @relation("EmpleadoTurnos", fields: [empleadoId], references: [id], onDelete: Cascade)
+  diaSemana   Int       // 0=Lunes ... 6=Domingo
+  horaInicio  String    // "07:00"
+  horaFin     String    // "13:00"
+  createdAt   DateTime  @default(now())
+
+  @@index([empleadoId])
+  @@index([diaSemana])
+}
+
+model HorarioNegocio {
+  id            String   @id @default(cuid())
+  diaSemana     Int      @unique // 0=Lunes ... 6=Domingo
+  abierto       Boolean  @default(true)
+  horaApertura  String?  // "07:00"
+  horaCierre    String?  // "18:00"
+  updatedAt     DateTime @updatedAt
 }
 
 model Socio {

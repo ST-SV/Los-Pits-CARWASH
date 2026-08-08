@@ -662,3 +662,171 @@ router.put('/config/device-password', async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Failed to update device password' })
   }
 })
+
+// HORARIOS: Horario del negocio (días/horas de apertura) + turnos de empleados
+router.get('/horarios', async (req: Request, res: Response) => {
+  try {
+    const { adminPin } = req.query
+
+    if (!adminPin || !(await requireAdminPin(adminPin as string))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+
+    const [horarioNegocio, turnos, empleados] = await Promise.all([
+      prisma.horarioNegocio.findMany({ orderBy: { diaSemana: 'asc' } }),
+      prisma.turno.findMany({
+        include: { empleado: { select: { id: true, nombre: true, apellido: true, role: true } } },
+        orderBy: [{ diaSemana: 'asc' }, { horaInicio: 'asc' }],
+      }),
+      prisma.empleado.findMany({
+        select: { id: true, nombre: true, apellido: true, role: true },
+        orderBy: { nombre: 'asc' },
+      }),
+    ])
+
+    // Asegura que existan los 7 días (0=Lunes .. 6=Domingo)
+    const existentes = new Set(horarioNegocio.map((h: any) => h.diaSemana))
+    const faltantes = [0, 1, 2, 3, 4, 5, 6].filter((d) => !existentes.has(d))
+    if (faltantes.length > 0) {
+      await prisma.horarioNegocio.createMany({
+        data: faltantes.map((diaSemana) => ({
+          diaSemana,
+          abierto: true,
+          horaApertura: '07:00',
+          horaCierre: '18:00',
+        })),
+      })
+    }
+
+    const horarioFinal = faltantes.length > 0
+      ? await prisma.horarioNegocio.findMany({ orderBy: { diaSemana: 'asc' } })
+      : horarioNegocio
+
+    res.json({ horarioNegocio: horarioFinal, turnos, empleados })
+  } catch (error) {
+    console.error('Error fetching horarios:', error)
+    res.status(500).json({ error: 'Failed to fetch horarios' })
+  }
+})
+
+// HORARIOS: Guardar horario del negocio (todos los días de una vez)
+router.put('/horarios/negocio', async (req: Request, res: Response) => {
+  try {
+    const { adminPin, dias } = req.body
+
+    if (!adminPin || !(await requireAdminPin(adminPin as string))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+
+    if (!Array.isArray(dias)) {
+      return res.status(400).json({ error: 'Dias array required' })
+    }
+
+    await Promise.all(
+      dias.map((d: any) =>
+        prisma.horarioNegocio.upsert({
+          where: { diaSemana: d.diaSemana },
+          update: {
+            abierto: !!d.abierto,
+            horaApertura: d.horaApertura || null,
+            horaCierre: d.horaCierre || null,
+          },
+          create: {
+            diaSemana: d.diaSemana,
+            abierto: !!d.abierto,
+            horaApertura: d.horaApertura || null,
+            horaCierre: d.horaCierre || null,
+          },
+        })
+      )
+    )
+
+    await prisma.auditLog.create({
+      data: {
+        actor: 'Administrador',
+        accion: 'Horario del negocio actualizado',
+        detalle: '',
+      },
+    })
+
+    const horarioNegocio = await prisma.horarioNegocio.findMany({ orderBy: { diaSemana: 'asc' } })
+    res.json(horarioNegocio)
+  } catch (error) {
+    console.error('Error updating horario negocio:', error)
+    res.status(500).json({ error: 'Failed to update horario negocio' })
+  }
+})
+
+// HORARIOS: Crear turno de empleado (entrada/salida en un día)
+router.post('/horarios/turnos', async (req: Request, res: Response) => {
+  try {
+    const { adminPin, empleadoId, diaSemana, horaInicio, horaFin } = req.body
+
+    if (!adminPin || !(await requireAdminPin(adminPin as string))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+
+    if (!empleadoId || diaSemana === undefined || diaSemana === null || !horaInicio || !horaFin) {
+      return res.status(400).json({ error: 'empleadoId, diaSemana, horaInicio y horaFin son requeridos' })
+    }
+
+    const empleado = await prisma.empleado.findUnique({ where: { id: empleadoId } })
+    if (!empleado) {
+      return res.status(404).json({ error: 'Empleado not found' })
+    }
+
+    const turno = await prisma.turno.create({
+      data: { empleadoId, diaSemana: Number(diaSemana), horaInicio, horaFin },
+      include: { empleado: { select: { id: true, nombre: true, apellido: true, role: true } } },
+    })
+
+    const dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+    await prisma.auditLog.create({
+      data: {
+        actor: 'Administrador',
+        accion: 'Turno agregado',
+        detalle: `${empleado.nombre} · ${dias[Number(diaSemana)]} ${horaInicio}-${horaFin}`,
+      },
+    })
+
+    res.json(turno)
+  } catch (error) {
+    console.error('Error creating turno:', error)
+    res.status(500).json({ error: 'Failed to create turno' })
+  }
+})
+
+// HORARIOS: Eliminar turno de empleado
+router.delete('/horarios/turnos/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { adminPin } = req.body
+
+    if (!adminPin || !(await requireAdminPin(adminPin as string))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+
+    const turno = await prisma.turno.findUnique({
+      where: { id },
+      include: { empleado: { select: { nombre: true } } },
+    })
+
+    await prisma.turno.delete({ where: { id } })
+
+    if (turno) {
+      const dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+      await prisma.auditLog.create({
+        data: {
+          actor: 'Administrador',
+          accion: 'Turno eliminado',
+          detalle: `${turno.empleado.nombre} · ${dias[turno.diaSemana]} ${turno.horaInicio}-${turno.horaFin}`,
+        },
+      })
+    }
+
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Error deleting turno:', error)
+    res.status(500).json({ error: 'Failed to delete turno' })
+  }
+})
