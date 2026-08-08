@@ -696,7 +696,7 @@ export default function Admin() {
                           </div>
                           <div className="dt-row">
                             <span className="k">
-                              Comisión ({emp.comisionPercent || 0}% si supera {emp.comisionThreshold || 0} autos · lavó {p.autosLavados})
+                              Comisión ({emp.comisionPercent || 0}% por lavado que supere ${emp.comisionThreshold || 0} · lavó {p.autosLavados} autos)
                             </span>
                             <span>${p.comision.toFixed(2)}</span>
                           </div>

@@ -157,11 +157,13 @@ router.get('/planilla', async (req: Request, res: Response) => {
             const itemsPeriodo = itemsMes.filter(
               (it: any) => it.lavadorId === e.id && new Date(it.venta.fecha) >= p.start && new Date(it.venta.fecha) < p.end
             )
-            const autosLavados = itemsPeriodo
-              .filter((it: any) => it.categoria === 'servicio')
-              .reduce((s: number, it: any) => s + it.cantidad, 0)
+            const serviciosPeriodo = itemsPeriodo.filter((it: any) => it.categoria === 'servicio')
+            const autosLavados = serviciosPeriodo.reduce((s: number, it: any) => s + it.cantidad, 0)
             const ventasAtribuidas = itemsPeriodo.reduce((s: number, it: any) => s + it.precio * it.cantidad, 0)
-            const comision = autosLavados > (e.comisionThreshold || 0) ? ventasAtribuidas * ((e.comisionPercent || 0) / 100) : 0
+            // Comisión: % sobre cada servicio individual (no producto) cuyo precio unitario supere el umbral
+            const comision = serviciosPeriodo
+              .filter((it: any) => it.precio > (e.comisionThreshold || 0))
+              .reduce((s: number, it: any) => s + it.precio * it.cantidad * ((e.comisionPercent || 0) / 100), 0)
             const sueldoBase = p.key === 'M' ? e.sueldoMensual || 0 : e.sueldoQuincenal || 0
             const periodoKey = `${mesStr}-${p.key}`
             const descuentosPeriodo = descuentosMes.filter((d: any) => d.empleadoId === e.id && d.periodo === periodoKey)
