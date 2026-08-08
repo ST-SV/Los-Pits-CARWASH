@@ -44,6 +44,7 @@ model Empleado {
   gastosRegistrados   Gasto[]   @relation("GastoRegistrador")
   auditLogs           AuditLog[] @relation("AuditActor")
   turnos              Turno[]   @relation("EmpleadoTurnos")
+  descuentos          Descuento[] @relation("EmpleadoDescuentos")
 }
 
 model Turno {
@@ -57,6 +58,19 @@ model Turno {
 
   @@index([empleadoId])
   @@index([diaSemana])
+}
+
+model Descuento {
+  id          String    @id @default(cuid())
+  empleadoId  String
+  empleado    Empleado  @relation("EmpleadoDescuentos", fields: [empleadoId], references: [id], onDelete: Cascade)
+  periodo     String    // "2026-08-Q1" | "2026-08-Q2" | "2026-08-M"
+  monto       Float
+  motivo      String
+  createdAt   DateTime  @default(now())
+
+  @@index([empleadoId])
+  @@index([periodo])
 }
 
 model HorarioNegocio {

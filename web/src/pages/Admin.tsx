@@ -20,18 +20,58 @@ interface Historial {
   cierres: Cierre[]
 }
 
-interface Diario {
-  fecha: string
-  ventas: number
-  nomina: number
-  otros: number
-  neto: number
+interface DescuentoItem {
+  id: string
+  monto: number
+  motivo: string
 }
 
-interface Contabilidad {
-  hoy: { ventas: number; nomina: number; otros: number; neto: number }
-  acumulado: { ingresos: number; nomina: number; otros: number; egreso: number; ganancia: number }
-  diarios: Diario[]
+interface PlanillaPeriodo {
+  periodo: 'Q1' | 'Q2' | 'M'
+  periodoKey: string
+  label: string
+  sueldoBase: number
+  autosLavados: number
+  ventasAtribuidas: number
+  comision: number
+  descuentos: DescuentoItem[]
+  totalDescuentos: number
+  totalPagar: number
+}
+
+interface PlanillaEmpleado {
+  id: string
+  nombre: string
+  apellido?: string | null
+  role: string
+  sueldoQuincenal?: number | null
+  sueldoMensual?: number | null
+  comisionPercent?: number | null
+  comisionThreshold?: number | null
+  periodos: PlanillaPeriodo[]
+}
+
+interface Planilla {
+  mes: string
+  hoy: { ventas: number; gastos: number; neto: number }
+  resumenMensual: {
+    ingresos: number
+    gastosOperativos: number
+    nominaYaRegistrada: number
+    planillaCalculada: number
+    balance: number
+  }
+  quincenas: { nombre: string; ingresos: number; gastosOperativos: number; planilla: number; balance: number }[]
+  empleados: PlanillaEmpleado[]
+  totalPlanilla: number
+  stats: {
+    ticketPromedio: number
+    autosLavadosMes: number
+    ventasPorMetodo: Record<string, number>
+    topLavador: { nombre: string; ventas: number } | null
+    ventasQ1: number
+    ventasQ2: number
+  }
 }
 
 interface Empleado {
@@ -101,7 +141,12 @@ export default function Admin() {
   const [tab, setTab] = useState<SubTab>('historial')
 
   const [historial, setHistorial] = useState<Historial | null>(null)
-  const [contabilidad, setContabilidad] = useState<Contabilidad | null>(null)
+  const [planilla, setPlanilla] = useState<Planilla | null>(null)
+  const [mesPlanilla, setMesPlanilla] = useState(() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  })
+  const [descuentoForm, setDescuentoForm] = useState<{ empleadoId: string; empleadoNombre: string; periodoKey: string; periodoLabel: string; monto: string; motivo: string } | null>(null)
   const [empleados, setEmpleados] = useState<Empleado[]>([])
   const [catalogo, setCatalogo] = useState<Catalogo | null>(null)
   const [auditoria, setAuditoria] = useState<AuditEntry[] | null>(null)
@@ -139,6 +184,18 @@ export default function Admin() {
     loadTab(tab)
   }, [unlocked, tab])
 
+  useEffect(() => {
+    if (!unlocked || tab !== 'contabilidad') return
+    loadPlanilla(mesPlanilla)
+  }, [mesPlanilla])
+
+  const loadPlanilla = (mes: string) => {
+    fetch(`/api/admin/planilla?adminPin=${encodeURIComponent(adminPin)}&mes=${encodeURIComponent(mes)}`)
+      .then(r => r.json())
+      .then(setPlanilla)
+      .catch(() => {})
+  }
+
   const loadTab = (t: SubTab) => {
     if (t === 'historial') {
       fetch(`/api/admin/historial?adminPin=${encodeURIComponent(adminPin)}`)
@@ -146,10 +203,7 @@ export default function Admin() {
         .then(setHistorial)
         .catch(() => {})
     } else if (t === 'contabilidad') {
-      fetch(`/api/admin/contabilidad?adminPin=${encodeURIComponent(adminPin)}`)
-        .then(r => r.json())
-        .then(setContabilidad)
-        .catch(() => {})
+      loadPlanilla(mesPlanilla)
     } else if (t === 'empleados') {
       fetch(`/api/admin/empleados?adminPin=${encodeURIComponent(adminPin)}`)
         .then(r => r.json())
@@ -236,6 +290,58 @@ export default function Admin() {
         throw new Error(err.error || 'Error al eliminar turno')
       }
       loadTab('horarios')
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleAddDescuento = async () => {
+    if (!descuentoForm || !descuentoForm.monto || !descuentoForm.motivo) {
+      toast('Completa el monto y el motivo', 'error')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/admin/planilla/descuento', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminPin,
+          empleadoId: descuentoForm.empleadoId,
+          periodo: descuentoForm.periodoKey,
+          monto: parseFloat(descuentoForm.monto),
+          motivo: descuentoForm.motivo,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Error al agregar descuento')
+      }
+      toast('Descuento agregado', 'success')
+      setDescuentoForm(null)
+      loadPlanilla(mesPlanilla)
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleDeleteDescuento = async (id: string) => {
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/admin/planilla/descuento/${id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPin }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Error al eliminar descuento')
+      }
+      loadPlanilla(mesPlanilla)
     } catch (e: any) {
       toast(e.message, 'error')
     } finally {
@@ -467,7 +573,14 @@ export default function Admin() {
 
       {tab === 'contabilidad' && (
         <div>
-          {!contabilidad ? (
+          <div className="action-row" style={{ alignItems: 'center', gap: 8 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span className="k">Mes</span>
+              <input type="month" value={mesPlanilla} onChange={e => setMesPlanilla(e.target.value)} />
+            </label>
+          </div>
+
+          {!planilla ? (
             <p className="empty-state">Cargando...</p>
           ) : (
             <>
@@ -475,60 +588,161 @@ export default function Admin() {
               <div className="detail-card">
                 <div className="dt-row">
                   <span className="k">Ventas</span>
-                  <span>${contabilidad.hoy.ventas.toFixed(2)}</span>
+                  <span>${planilla.hoy.ventas.toFixed(2)}</span>
                 </div>
                 <div className="dt-row">
-                  <span className="k">Nómina</span>
-                  <span>${contabilidad.hoy.nomina.toFixed(2)}</span>
-                </div>
-                <div className="dt-row">
-                  <span className="k">Otros gastos</span>
-                  <span>${contabilidad.hoy.otros.toFixed(2)}</span>
+                  <span className="k">Gastos</span>
+                  <span>${planilla.hoy.gastos.toFixed(2)}</span>
                 </div>
                 <div className="dt-row">
                   <span className="k">Neto</span>
-                  <span>${contabilidad.hoy.neto.toFixed(2)}</span>
+                  <span>${planilla.hoy.neto.toFixed(2)}</span>
                 </div>
               </div>
-              <h2>Acumulado</h2>
+
+              <h2>Resumen del mes</h2>
               <div className="detail-card">
                 <div className="dt-row">
-                  <span className="k">Ingresos</span>
-                  <span>${contabilidad.acumulado.ingresos.toFixed(2)}</span>
+                  <span className="k">Ingresos totales</span>
+                  <span>${planilla.resumenMensual.ingresos.toFixed(2)}</span>
                 </div>
                 <div className="dt-row">
-                  <span className="k">Nómina</span>
-                  <span>${contabilidad.acumulado.nomina.toFixed(2)}</span>
+                  <span className="k">Gastos operativos</span>
+                  <span>${planilla.resumenMensual.gastosOperativos.toFixed(2)}</span>
                 </div>
                 <div className="dt-row">
-                  <span className="k">Otros</span>
-                  <span>${contabilidad.acumulado.otros.toFixed(2)}</span>
+                  <span className="k">Nómina ya registrada como gasto</span>
+                  <span>${planilla.resumenMensual.nominaYaRegistrada.toFixed(2)}</span>
                 </div>
                 <div className="dt-row">
-                  <span className="k">Egreso total</span>
-                  <span>${contabilidad.acumulado.egreso.toFixed(2)}</span>
+                  <span className="k">Planilla calculada (a abonar)</span>
+                  <span>${planilla.resumenMensual.planillaCalculada.toFixed(2)}</span>
                 </div>
                 <div className="dt-row">
-                  <span className="k">Ganancia</span>
-                  <span>${contabilidad.acumulado.ganancia.toFixed(2)}</span>
+                  <span className="k">Balance del mes</span>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: planilla.resumenMensual.balance >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                    ${planilla.resumenMensual.balance.toFixed(2)}
+                  </span>
                 </div>
               </div>
-              <h2>Diario</h2>
-              {contabilidad.diarios.length === 0 ? (
-                <p className="empty-state">Sin datos</p>
+
+              <h2>Balance quincenal</h2>
+              <div className="stat-grid">
+                {planilla.quincenas.map((q, i) => (
+                  <div key={i} className="stat-card">
+                    <div className="label">{q.nombre}</div>
+                    <div className="value yellow">${q.ingresos.toFixed(2)}</div>
+                    <div className="sub" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                      Gastos ${q.gastosOperativos.toFixed(2)} · Planilla ${q.planilla.toFixed(2)}
+                    </div>
+                    <div className={`value ${q.balance >= 0 ? 'green' : 'red'}`} style={{ marginTop: 4 }}>
+                      ${q.balance.toFixed(2)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <h2>Estadísticas del mes</h2>
+              <div className="stat-grid">
+                <div className="stat-card">
+                  <div className="label">Autos lavados</div>
+                  <div className="value yellow">{planilla.stats.autosLavadosMes}</div>
+                </div>
+                <div className="stat-card">
+                  <div className="label">Ticket promedio</div>
+                  <div className="value yellow">${planilla.stats.ticketPromedio.toFixed(2)}</div>
+                </div>
+                <div className="stat-card">
+                  <div className="label">Top lavador</div>
+                  <div className="value green" style={{ fontSize: 15 }}>
+                    {planilla.stats.topLavador ? planilla.stats.topLavador.nombre : '—'}
+                  </div>
+                  {planilla.stats.topLavador && (
+                    <div className="sub" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                      ${planilla.stats.topLavador.ventas.toFixed(2)} en ventas atribuidas
+                    </div>
+                  )}
+                </div>
+                {Object.entries(planilla.stats.ventasPorMetodo).map(([metodo, monto]) => (
+                  <div key={metodo} className="stat-card">
+                    <div className="label" style={{ textTransform: 'capitalize' }}>{metodo}</div>
+                    <div className="value yellow">${(monto as number).toFixed(2)}</div>
+                  </div>
+                ))}
+              </div>
+
+              <h2>Planilla de empleados</h2>
+              {planilla.empleados.length === 0 ? (
+                <p className="empty-state">No hay empleados con sueldo configurado. Configura sueldo quincenal o mensual en Empleados.</p>
               ) : (
-                <div className="list">
-                  {contabilidad.diarios.map((d, i) => (
-                    <div key={i} className="list-row static">
-                      <div className="main">
-                        <div className="title">{new Date(d.fecha).toLocaleDateString('es-SV')}</div>
-                        <div className="sub">
-                          Ventas ${d.ventas.toFixed(2)} · Nómina ${d.nomina.toFixed(2)} · Otros ${d.otros.toFixed(2)}
-                        </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {planilla.empleados.map(emp => (
+                    <div key={emp.id} className="detail-card">
+                      <div className="dt-row" style={{ borderBottom: 'none', fontWeight: 700 }}>
+                        <span>
+                          {emp.nombre} {emp.apellido}
+                        </span>
+                        <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>{emp.role}</span>
                       </div>
-                      <div className="amount">${d.neto.toFixed(2)}</div>
+                      {emp.periodos.map(p => (
+                        <div key={p.periodo} style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--line)' }}>
+                          <div className="dt-row" style={{ borderBottom: 'none' }}>
+                            <span className="k">{p.label}</span>
+                            <span style={{ fontWeight: 700 }}>${p.totalPagar.toFixed(2)}</span>
+                          </div>
+                          <div className="dt-row">
+                            <span className="k">Sueldo base</span>
+                            <span>${p.sueldoBase.toFixed(2)}</span>
+                          </div>
+                          <div className="dt-row">
+                            <span className="k">
+                              Comisión ({emp.comisionPercent || 0}% si supera {emp.comisionThreshold || 0} autos · lavó {p.autosLavados})
+                            </span>
+                            <span>${p.comision.toFixed(2)}</span>
+                          </div>
+                          {p.descuentos.map(d => (
+                            <div key={d.id} className="dt-row">
+                              <span className="k">Descuento: {d.motivo}</span>
+                              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                -${d.monto.toFixed(2)}
+                                <button
+                                  className="btn-danger"
+                                  style={{ padding: '0 6px', fontSize: 11 }}
+                                  onClick={() => handleDeleteDescuento(d.id)}
+                                >
+                                  ✕
+                                </button>
+                              </span>
+                            </div>
+                          ))}
+                          <div className="action-row" style={{ marginTop: 6 }}>
+                            <button
+                              className="btn-secondary"
+                              style={{ fontSize: 12, padding: '4px 10px', maxWidth: 180 }}
+                              onClick={() =>
+                                setDescuentoForm({
+                                  empleadoId: emp.id,
+                                  empleadoNombre: `${emp.nombre} ${emp.apellido || ''}`.trim(),
+                                  periodoKey: p.periodoKey,
+                                  periodoLabel: p.label,
+                                  monto: '',
+                                  motivo: '',
+                                })
+                              }
+                            >
+                              + Descuento
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   ))}
+                  <div className="detail-card">
+                    <div className="dt-row" style={{ borderBottom: 'none', fontWeight: 700 }}>
+                      <span>Total planilla del mes a abonar</span>
+                      <span>${planilla.totalPlanilla.toFixed(2)}</span>
+                    </div>
+                  </div>
                 </div>
               )}
             </>
@@ -944,6 +1158,40 @@ export default function Admin() {
                 Cancelar
               </button>
               <button className="btn-confirm" onClick={handleAddTurno} disabled={submitting}>
+                {submitting ? 'Guardando...' : 'Agregar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {descuentoForm && (
+        <div className="modal-overlay" onClick={() => setDescuentoForm(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h2>
+              Descuento · {descuentoForm.empleadoNombre} · {descuentoForm.periodoLabel}
+            </h2>
+            <div className="form-group">
+              <label>Monto *</label>
+              <input
+                type="number"
+                step="0.01"
+                value={descuentoForm.monto}
+                onChange={e => setDescuentoForm({ ...descuentoForm, monto: e.target.value })}
+              />
+            </div>
+            <div className="form-group">
+              <label>Motivo *</label>
+              <input
+                value={descuentoForm.motivo}
+                onChange={e => setDescuentoForm({ ...descuentoForm, motivo: e.target.value })}
+              />
+            </div>
+            <div className="modal-buttons">
+              <button className="btn-cancel" onClick={() => setDescuentoForm(null)}>
+                Cancelar
+              </button>
+              <button className="btn-confirm" onClick={handleAddDescuento} disabled={submitting}>
                 {submitting ? 'Guardando...' : 'Agregar'}
               </button>
             </div>

@@ -83,66 +83,254 @@ router.get('/historial', async (req: Request, res: Response) => {
   }
 })
 
-// CONTABILIDAD: Acumulados + libro diario
-router.get('/contabilidad', async (req: Request, res: Response) => {
+// PLANILLA: nómina quincenal/mensual + balance del mes en curso
+router.get('/planilla', async (req: Request, res: Response) => {
   try {
-    const { adminPin } = req.query
+    const { adminPin, mes } = req.query
 
     if (!adminPin || !(await requireAdminPin(adminPin as string))) {
       return res.status(401).json({ error: 'Invalid admin PIN' })
     }
+
+    const now = new Date()
+    const mesStr = (mes as string) && /^\d{4}-\d{2}$/.test(mes as string) ? (mes as string) : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    const [year, month] = mesStr.split('-').map(Number)
+
+    const monthStart = new Date(year, month - 1, 1)
+    const monthEnd = new Date(year, month, 1)
+    const q1Start = monthStart
+    const q1End = new Date(year, month - 1, 16)
+    const q2Start = q1End
+    const q2End = monthEnd
 
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     const tomorrow = new Date(today)
     tomorrow.setDate(tomorrow.getDate() + 1)
 
-    const [ventasHoy, gastosHoy, historial] = await Promise.all([
-      prisma.venta.findMany({
-        where: { fecha: { gte: today, lt: tomorrow }, anulada: false },
-        include: { items: true },
+    const periodoKeys = [`${mesStr}-Q1`, `${mesStr}-Q2`, `${mesStr}-M`]
+
+    const [empleados, ventasHoy, gastosHoy, ventasMes, gastosMes, itemsMes, descuentosMes] = await Promise.all([
+      prisma.empleado.findMany({ orderBy: { createdAt: 'desc' } }),
+      prisma.venta.findMany({ where: { fecha: { gte: today, lt: tomorrow }, anulada: false } }),
+      prisma.gasto.findMany({ where: { fecha: { gte: today, lt: tomorrow } } }),
+      prisma.venta.findMany({ where: { fecha: { gte: monthStart, lt: monthEnd }, anulada: false } }),
+      prisma.gasto.findMany({ where: { fecha: { gte: monthStart, lt: monthEnd } } }),
+      prisma.ventaItem.findMany({
+        where: { lavadorId: { not: null }, venta: { fecha: { gte: monthStart, lt: monthEnd }, anulada: false } },
+        include: { venta: true },
       }),
-      prisma.gasto.findMany({
-        where: { fecha: { gte: today, lt: tomorrow } },
-      }),
-      prisma.cierreDeCaja.findMany({
-        orderBy: { fecha: 'desc' },
-      }),
+      prisma.descuento.findMany({ where: { periodo: { in: periodoKeys } } }),
     ])
 
     const hoyVentas = ventasHoy.reduce((s: number, v: any) => s + v.total, 0)
     const hoyGastos = gastosHoy.reduce((s: number, g: any) => s + g.monto, 0)
-    const hoyNomina = gastosHoy.filter((g: any) => g.categoria === 'nomina').reduce((s: number, g: any) => s + g.monto, 0)
-    const hoyOtros = gastosHoy.filter((g: any) => g.categoria !== 'nomina').reduce((s: number, g: any) => s + g.monto, 0)
 
-    let accIngresos = hoyVentas
-    let accNomina = hoyNomina
-    let accOtros = hoyOtros
+    const sumInRange = (list: any[], start: Date, end: Date) =>
+      list.filter((v: any) => new Date(v.fecha) >= start && new Date(v.fecha) < end).reduce((s: number, v: any) => s + v.total, 0)
 
-    historial.forEach((d: any) => {
-      accIngresos += d.totalVentas
-      // Parse gastos from cierre (needs refactor but works for now)
+    const ingresosMes = ventasMes.reduce((s: number, v: any) => s + v.total, 0)
+    const ingresosQ1 = sumInRange(ventasMes, q1Start, q1End)
+    const ingresosQ2 = sumInRange(ventasMes, q2Start, q2End)
+
+    const gastosOperativosMes = gastosMes.filter((g: any) => g.categoria !== 'nomina').reduce((s: number, g: any) => s + g.monto, 0)
+    const gastosOperativosQ1 = gastosMes
+      .filter((g: any) => g.categoria !== 'nomina' && new Date(g.fecha) >= q1Start && new Date(g.fecha) < q1End)
+      .reduce((s: number, g: any) => s + g.monto, 0)
+    const gastosOperativosQ2 = gastosMes
+      .filter((g: any) => g.categoria !== 'nomina' && new Date(g.fecha) >= q2Start && new Date(g.fecha) < q2End)
+      .reduce((s: number, g: any) => s + g.monto, 0)
+    const nominaYaRegistrada = gastosMes.filter((g: any) => g.categoria === 'nomina').reduce((s: number, g: any) => s + g.monto, 0)
+
+    const periodDef = [
+      { key: 'Q1' as const, label: `Quincena 1 (1–15)`, start: q1Start, end: q1End },
+      { key: 'Q2' as const, label: `Quincena 2 (16–fin)`, start: q2Start, end: q2End },
+      { key: 'M' as const, label: 'Mes completo', start: monthStart, end: monthEnd },
+    ]
+
+    const empleadosPlanilla = empleados
+      .filter((e: any) => (e.sueldoQuincenal || 0) > 0 || (e.sueldoMensual || 0) > 0)
+      .map((e: any) => {
+        const periodos = periodDef
+          .filter(p => (p.key === 'M' ? (e.sueldoMensual || 0) > 0 : (e.sueldoQuincenal || 0) > 0))
+          .map(p => {
+            const itemsPeriodo = itemsMes.filter(
+              (it: any) => it.lavadorId === e.id && new Date(it.venta.fecha) >= p.start && new Date(it.venta.fecha) < p.end
+            )
+            const autosLavados = itemsPeriodo
+              .filter((it: any) => it.categoria === 'servicio')
+              .reduce((s: number, it: any) => s + it.cantidad, 0)
+            const ventasAtribuidas = itemsPeriodo.reduce((s: number, it: any) => s + it.precio * it.cantidad, 0)
+            const comision = autosLavados > (e.comisionThreshold || 0) ? ventasAtribuidas * ((e.comisionPercent || 0) / 100) : 0
+            const sueldoBase = p.key === 'M' ? e.sueldoMensual || 0 : e.sueldoQuincenal || 0
+            const periodoKey = `${mesStr}-${p.key}`
+            const descuentosPeriodo = descuentosMes.filter((d: any) => d.empleadoId === e.id && d.periodo === periodoKey)
+            const totalDescuentos = descuentosPeriodo.reduce((s: number, d: any) => s + d.monto, 0)
+            const totalPagar = sueldoBase + comision - totalDescuentos
+
+            return {
+              periodo: p.key,
+              periodoKey,
+              label: p.label,
+              sueldoBase,
+              autosLavados,
+              ventasAtribuidas,
+              comision,
+              descuentos: descuentosPeriodo,
+              totalDescuentos,
+              totalPagar,
+            }
+          })
+
+        return {
+          id: e.id,
+          nombre: e.nombre,
+          apellido: e.apellido,
+          role: e.role,
+          sueldoQuincenal: e.sueldoQuincenal,
+          sueldoMensual: e.sueldoMensual,
+          comisionPercent: e.comisionPercent,
+          comisionThreshold: e.comisionThreshold,
+          periodos,
+        }
+      })
+
+    const planillaPorPeriodo = (key: 'Q1' | 'Q2' | 'M') =>
+      empleadosPlanilla.reduce((s: number, e: any) => s + e.periodos.filter((p: any) => p.periodo === key).reduce((s2: number, p: any) => s2 + p.totalPagar, 0), 0)
+
+    const planillaQ1 = planillaPorPeriodo('Q1')
+    const planillaQ2 = planillaPorPeriodo('Q2')
+    const planillaMensualDirecta = planillaPorPeriodo('M')
+    const planillaTotalMes = planillaQ1 + planillaQ2 + planillaMensualDirecta
+
+    const autosLavadosMes = itemsMes.filter((it: any) => it.categoria === 'servicio').reduce((s: number, it: any) => s + it.cantidad, 0)
+    const ticketPromedio = ventasMes.length > 0 ? ingresosMes / ventasMes.length : 0
+    const ventasPorMetodo = ventasMes.reduce((acc: any, v: any) => {
+      acc[v.metodoPago] = (acc[v.metodoPago] || 0) + v.total
+      return acc
+    }, {} as Record<string, number>)
+
+    const ventasPorLavador: Record<string, number> = {}
+    itemsMes.forEach((it: any) => {
+      if (!it.lavadorId) return
+      ventasPorLavador[it.lavadorId] = (ventasPorLavador[it.lavadorId] || 0) + it.precio * it.cantidad
+    })
+    let topLavador: { nombre: string; ventas: number } | null = null
+    Object.entries(ventasPorLavador).forEach(([empId, ventas]) => {
+      if (!topLavador || ventas > topLavador.ventas) {
+        const emp = empleados.find((e: any) => e.id === empId)
+        if (emp) topLavador = { nombre: `${emp.nombre} ${emp.apellido || ''}`.trim(), ventas: ventas as number }
+      }
     })
 
     res.json({
-      hoy: {
-        ventas: hoyVentas,
-        nomina: hoyNomina,
-        otros: hoyOtros,
-        neto: hoyVentas - hoyGastos,
+      mes: mesStr,
+      hoy: { ventas: hoyVentas, gastos: hoyGastos, neto: hoyVentas - hoyGastos },
+      resumenMensual: {
+        ingresos: ingresosMes,
+        gastosOperativos: gastosOperativosMes,
+        nominaYaRegistrada,
+        planillaCalculada: planillaTotalMes,
+        balance: ingresosMes - gastosOperativosMes - planillaTotalMes,
       },
-      acumulado: {
-        ingresos: accIngresos,
-        nomina: accNomina,
-        otros: accOtros,
-        egreso: accNomina + accOtros,
-        ganancia: accIngresos - (accNomina + accOtros),
+      quincenas: [
+        {
+          nombre: 'Quincena 1 (1–15)',
+          ingresos: ingresosQ1,
+          gastosOperativos: gastosOperativosQ1,
+          planilla: planillaQ1,
+          balance: ingresosQ1 - gastosOperativosQ1 - planillaQ1,
+        },
+        {
+          nombre: 'Quincena 2 (16–fin)',
+          ingresos: ingresosQ2,
+          gastosOperativos: gastosOperativosQ2,
+          planilla: planillaQ2,
+          balance: ingresosQ2 - gastosOperativosQ2 - planillaQ2,
+        },
+      ],
+      empleados: empleadosPlanilla,
+      totalPlanilla: planillaTotalMes,
+      stats: {
+        ticketPromedio,
+        autosLavadosMes,
+        ventasPorMetodo,
+        topLavador,
+        ventasQ1: ingresosQ1,
+        ventasQ2: ingresosQ2,
       },
-      diarios: historial,
     })
   } catch (error) {
-    console.error('Error fetching contabilidad:', error)
-    res.status(500).json({ error: 'Failed to fetch contabilidad' })
+    console.error('Error fetching planilla:', error)
+    res.status(500).json({ error: 'Failed to fetch planilla' })
+  }
+})
+
+// PLANILLA: agregar descuento manual a un empleado en un período
+router.post('/planilla/descuento', async (req: Request, res: Response) => {
+  try {
+    const { adminPin, empleadoId, periodo, monto, motivo } = req.body
+
+    if (!adminPin || !(await requireAdminPin(adminPin))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+    if (!empleadoId || !periodo || !monto || !motivo) {
+      return res.status(400).json({ error: 'Faltan datos del descuento' })
+    }
+
+    const empleado = await prisma.empleado.findUnique({ where: { id: empleadoId } })
+    if (!empleado) {
+      return res.status(404).json({ error: 'Empleado no encontrado' })
+    }
+
+    const descuento = await prisma.descuento.create({
+      data: { empleadoId, periodo, monto: parseFloat(monto), motivo },
+    })
+
+    await prisma.auditLog.create({
+      data: {
+        actor: 'Administrador',
+        accion: 'Descuento agregado',
+        detalle: `${empleado.nombre} ${empleado.apellido || ''} · ${periodo} · $${descuento.monto.toFixed(2)} · ${motivo}`,
+      },
+    })
+
+    res.json(descuento)
+  } catch (error) {
+    console.error('Error creating descuento:', error)
+    res.status(500).json({ error: 'Failed to create descuento' })
+  }
+})
+
+// PLANILLA: eliminar descuento
+router.delete('/planilla/descuento/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { adminPin } = req.body
+
+    if (!adminPin || !(await requireAdminPin(adminPin))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+
+    const descuento = await prisma.descuento.findUnique({ where: { id }, include: { empleado: true } })
+    if (!descuento) {
+      return res.status(404).json({ error: 'Descuento no encontrado' })
+    }
+
+    await prisma.descuento.delete({ where: { id } })
+
+    await prisma.auditLog.create({
+      data: {
+        actor: 'Administrador',
+        accion: 'Descuento eliminado',
+        detalle: `${descuento.empleado.nombre} ${descuento.empleado.apellido || ''} · ${descuento.periodo} · $${descuento.monto.toFixed(2)}`,
+      },
+    })
+
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Error deleting descuento:', error)
+    res.status(500).json({ error: 'Failed to delete descuento' })
   }
 })
 
