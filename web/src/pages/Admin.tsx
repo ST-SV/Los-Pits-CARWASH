@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useApp } from '../context/useApp'
 
-type SubTab = 'historial' | 'contabilidad' | 'empleados' | 'catalogo' | 'auditoria' | 'config'
+type SubTab = 'historial' | 'contabilidad' | 'empleados' | 'horarios' | 'catalogo' | 'auditoria' | 'config'
+
+const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 
 interface Cierre {
   id: string
@@ -68,6 +70,29 @@ interface AuditEntry {
   fecha: string
 }
 
+interface HorarioDia {
+  id: string
+  diaSemana: number
+  abierto: boolean
+  horaApertura?: string | null
+  horaCierre?: string | null
+}
+
+interface Turno {
+  id: string
+  empleadoId: string
+  diaSemana: number
+  horaInicio: string
+  horaFin: string
+  empleado: { id: string; nombre: string; apellido?: string | null; role: string }
+}
+
+interface HorariosData {
+  horarioNegocio: HorarioDia[]
+  turnos: Turno[]
+  empleados: { id: string; nombre: string; apellido?: string | null; role: string }[]
+}
+
 export default function Admin() {
   const { toast } = useApp()
   const [unlocked, setUnlocked] = useState(false)
@@ -80,6 +105,9 @@ export default function Admin() {
   const [empleados, setEmpleados] = useState<Empleado[]>([])
   const [catalogo, setCatalogo] = useState<Catalogo | null>(null)
   const [auditoria, setAuditoria] = useState<AuditEntry[] | null>(null)
+  const [horariosData, setHorariosData] = useState<HorariosData | null>(null)
+  const [horarioNegocioForm, setHorarioNegocioForm] = useState<HorarioDia[]>([])
+  const [turnoForm, setTurnoForm] = useState<{ empleadoId: string; diaSemana: number; horaInicio: string; horaFin: string } | null>(null)
 
   const [empForm, setEmpForm] = useState<Partial<Empleado> & { pin?: string }>({})
   const [showEmpForm, setShowEmpForm] = useState(false)
@@ -137,6 +165,81 @@ export default function Admin() {
         .then(r => r.json())
         .then(setAuditoria)
         .catch(() => {})
+    } else if (t === 'horarios') {
+      fetch(`/api/admin/horarios?adminPin=${encodeURIComponent(adminPin)}`)
+        .then(r => r.json())
+        .then((d: HorariosData) => {
+          setHorariosData(d)
+          setHorarioNegocioForm(d.horarioNegocio)
+        })
+        .catch(() => {})
+    }
+  }
+
+  const handleSaveHorarioNegocio = async () => {
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/admin/horarios/negocio', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPin, dias: horarioNegocioForm }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Error al guardar horario')
+      }
+      toast('Horario del negocio guardado', 'success')
+      loadTab('horarios')
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleAddTurno = async () => {
+    if (!turnoForm || !turnoForm.horaInicio || !turnoForm.horaFin) {
+      toast('Completa entrada y salida', 'error')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/admin/horarios/turnos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPin, ...turnoForm }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Error al agregar turno')
+      }
+      toast('Turno agregado', 'success')
+      setTurnoForm(null)
+      loadTab('horarios')
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleDeleteTurno = async (id: string) => {
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/admin/horarios/turnos/${id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPin }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Error al eliminar turno')
+      }
+      loadTab('horarios')
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -300,7 +403,7 @@ export default function Admin() {
   return (
     <div className="admin">
       <div className="subnav">
-        {(['historial', 'contabilidad', 'empleados', 'catalogo', 'auditoria', 'config'] as SubTab[]).map(t => (
+        {(['historial', 'contabilidad', 'empleados', 'horarios', 'catalogo', 'auditoria', 'config'] as SubTab[]).map(t => (
           <button key={t} className={`subnav-btn ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
             {t}
           </button>
@@ -464,6 +567,140 @@ export default function Admin() {
                 </div>
               ))}
             </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'horarios' && (
+        <div>
+          {!horariosData ? (
+            <p className="empty-state">Cargando...</p>
+          ) : (
+            <>
+              <h2>Horario del negocio</h2>
+              <div className="list">
+                {horarioNegocioForm.map((d, i) => (
+                  <div key={d.diaSemana} className="list-row static" style={{ flexWrap: 'wrap', gap: 8 }}>
+                    <div className="main" style={{ minWidth: 100 }}>
+                      <div className="title">{DIAS[d.diaSemana]}</div>
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <input
+                        type="checkbox"
+                        checked={d.abierto}
+                        onChange={e => {
+                          const next = [...horarioNegocioForm]
+                          next[i] = { ...next[i], abierto: e.target.checked }
+                          setHorarioNegocioForm(next)
+                        }}
+                      />
+                      Abierto
+                    </label>
+                    {d.abierto && (
+                      <>
+                        <input
+                          type="time"
+                          value={d.horaApertura || ''}
+                          onChange={e => {
+                            const next = [...horarioNegocioForm]
+                            next[i] = { ...next[i], horaApertura: e.target.value }
+                            setHorarioNegocioForm(next)
+                          }}
+                          style={{ width: 110 }}
+                        />
+                        <span>a</span>
+                        <input
+                          type="time"
+                          value={d.horaCierre || ''}
+                          onChange={e => {
+                            const next = [...horarioNegocioForm]
+                            next[i] = { ...next[i], horaCierre: e.target.value }
+                            setHorarioNegocioForm(next)
+                          }}
+                          style={{ width: 110 }}
+                        />
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="action-row">
+                <button className="btn-primary" onClick={handleSaveHorarioNegocio} disabled={submitting} style={{ maxWidth: 220 }}>
+                  {submitting ? 'Guardando...' : 'Guardar horario del negocio'}
+                </button>
+              </div>
+
+              <h2>Turnos de empleados</h2>
+              {horariosData.empleados.length === 0 ? (
+                <p className="empty-state">No hay empleados registrados</p>
+              ) : (
+                <div className="table-scroll" style={{ overflowX: 'auto' }}>
+                  <table className="horario-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ textAlign: 'left', padding: 8 }}>Empleado</th>
+                        {DIAS.map((d, i) => (
+                          <th key={i} style={{ padding: 8, minWidth: 140 }}>
+                            {d.slice(0, 3)}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {horariosData.empleados.map(emp => (
+                        <tr key={emp.id}>
+                          <td style={{ padding: 8, fontWeight: 600 }}>
+                            {emp.nombre} {emp.apellido}
+                          </td>
+                          {DIAS.map((_, dia) => {
+                            const turnosDia = horariosData.turnos.filter(t => t.empleadoId === emp.id && t.diaSemana === dia)
+                            return (
+                              <td key={dia} style={{ padding: 8, verticalAlign: 'top' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                  {turnosDia.map(t => (
+                                    <div
+                                      key={t.id}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        gap: 4,
+                                        background: 'var(--card-bg, #222)',
+                                        borderRadius: 6,
+                                        padding: '2px 6px',
+                                        fontSize: 12,
+                                      }}
+                                    >
+                                      <span>
+                                        {t.horaInicio}–{t.horaFin}
+                                      </span>
+                                      <button
+                                        className="btn-danger"
+                                        style={{ padding: '0 6px', fontSize: 11 }}
+                                        onClick={() => handleDeleteTurno(t.id)}
+                                      >
+                                        ✕
+                                      </button>
+                                    </div>
+                                  ))}
+                                  <button
+                                    className="btn-secondary"
+                                    style={{ fontSize: 12, padding: '2px 6px' }}
+                                    onClick={() => setTurnoForm({ empleadoId: emp.id, diaSemana: dia, horaInicio: '', horaFin: '' })}
+                                  >
+                                    + Agregar
+                                  </button>
+                                </div>
+                              </td>
+                            )
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -671,6 +908,43 @@ export default function Admin() {
               </button>
               <button className="btn-confirm" onClick={handleSaveEmp} disabled={submitting}>
                 {submitting ? 'Guardando...' : 'Guardar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {turnoForm && (
+        <div className="modal-overlay" onClick={() => setTurnoForm(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h2>
+              Nuevo turno · {horariosData?.empleados.find(e => e.id === turnoForm.empleadoId)?.nombre} · {DIAS[turnoForm.diaSemana]}
+            </h2>
+            <div className="form-group">
+              <label>Entrada</label>
+              <input
+                type="time"
+                value={turnoForm.horaInicio}
+                onChange={e => setTurnoForm({ ...turnoForm, horaInicio: e.target.value })}
+              />
+            </div>
+            <div className="form-group">
+              <label>Salida</label>
+              <input
+                type="time"
+                value={turnoForm.horaFin}
+                onChange={e => setTurnoForm({ ...turnoForm, horaFin: e.target.value })}
+              />
+            </div>
+            <p className="empty-state" style={{ fontSize: 12 }}>
+              Puedes agregar más de una entrada/salida el mismo día (turno partido).
+            </p>
+            <div className="modal-buttons">
+              <button className="btn-cancel" onClick={() => setTurnoForm(null)}>
+                Cancelar
+              </button>
+              <button className="btn-confirm" onClick={handleAddTurno} disabled={submitting}>
+                {submitting ? 'Guardando...' : 'Agregar'}
               </button>
             </div>
           </div>
