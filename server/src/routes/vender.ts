@@ -24,10 +24,32 @@ router.get('/catalogo', async (req: Request, res: Response) => {
 // POST venta (crear venta con PIN confirm)
 router.post('/venta', async (req: Request, res: Response) => {
   try {
-    const { items, metodoPago, empleadoId, pin, socioId } = req.body
+    const {
+      items,
+      metodoPago,
+      empleadoId,
+      pin,
+      socioId,
+      numeroRecibo,
+      referencia,
+      montoRecibido,
+      banco,
+      numeroCupon,
+      comprobanteFoto,
+    } = req.body
 
-    if (!items || !metodoPago || !empleadoId || !pin) {
+    if (!items || !metodoPago || !empleadoId || !pin || !numeroRecibo) {
       return res.status(400).json({ error: 'Missing required fields' })
+    }
+
+    if (metodoPago === 'efectivo' && (montoRecibido === undefined || montoRecibido === null)) {
+      return res.status(400).json({ error: 'Falta el monto recibido' })
+    }
+    if (metodoPago === 'transferencia' && !referencia) {
+      return res.status(400).json({ error: 'Falta el número de transferencia' })
+    }
+    if (metodoPago === 'tarjeta' && (!banco || !numeroCupon)) {
+      return res.status(400).json({ error: 'Falta el banco o el número de cupón' })
     }
 
     // Verify empleado exists and PIN is correct
@@ -80,27 +102,20 @@ router.post('/venta', async (req: Request, res: Response) => {
       }
     }
 
-    // Generate recibo number
-    const today = new Date().toISOString().split('T')[0]
-    const lastVenta = await prisma.venta.findFirst({
-      where: {
-        createdAt: {
-          gte: new Date(today),
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    })
-    const numeroRecibo = lastVenta
-      ? parseInt(lastVenta.numeroRecibo.split('-')[1]) + 1
-      : 1
-    const recibo = `${today}-${numeroRecibo}`
+    const vuelto = metodoPago === 'efectivo' ? Math.max(0, montoRecibido - total) : null
 
     // Create venta
     const venta = await prisma.venta.create({
       data: {
-        numeroRecibo: recibo,
+        numeroRecibo,
         total,
         metodoPago,
+        referencia: metodoPago === 'transferencia' ? referencia : null,
+        montoRecibido: metodoPago === 'efectivo' ? montoRecibido : null,
+        vuelto,
+        banco: metodoPago === 'tarjeta' ? banco : null,
+        numeroCupon: metodoPago === 'tarjeta' ? numeroCupon : null,
+        comprobanteFoto: metodoPago === 'transferencia' ? comprobanteFoto || null : null,
         cajeroId: empleadoId,
         socioId: socioId || null,
         items: {
@@ -119,7 +134,7 @@ router.post('/venta', async (req: Request, res: Response) => {
       data: {
         actor: empleado.nombre,
         accion: 'Venta registrada',
-        detalle: `Recibo ${recibo} · $${total.toFixed(2)} · ${metodoPago} · ${itemsResumen}`,
+        detalle: `Recibo ${numeroRecibo} · $${total.toFixed(2)} · ${metodoPago} · ${itemsResumen}`,
         actorId: empleadoId,
       },
     })
@@ -241,7 +256,17 @@ router.delete('/cuentas/:id', async (req: Request, res: Response) => {
 router.post('/cuentas/:id/checkout', async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    const { cajeroId, cajeroPin, numeroRecibo, referencia, metodoPago } = req.body
+    const {
+      cajeroId,
+      cajeroPin,
+      numeroRecibo,
+      referencia,
+      metodoPago,
+      montoRecibido,
+      banco,
+      numeroCupon,
+      comprobanteFoto,
+    } = req.body
 
     if (!cajeroId || !cajeroPin || !numeroRecibo || !metodoPago) {
       return res.status(400).json({ error: 'Missing required fields' })
@@ -274,11 +299,18 @@ router.post('/cuentas/:id/checkout', async (req: Request, res: Response) => {
     // Calculate total
     const total = cuenta.items.reduce((sum: number, item: any) => sum + item.precio * item.cantidad, 0)
 
+    const vuelto = metodoPago === 'efectivo' ? Math.max(0, montoRecibido - total) : null
+
     // Create venta from cuenta
     const venta = await prisma.venta.create({
       data: {
         numeroRecibo,
-        referencia,
+        referencia: metodoPago === 'transferencia' ? referencia : null,
+        montoRecibido: metodoPago === 'efectivo' ? montoRecibido : null,
+        vuelto,
+        banco: metodoPago === 'tarjeta' ? banco : null,
+        numeroCupon: metodoPago === 'tarjeta' ? numeroCupon : null,
+        comprobanteFoto: metodoPago === 'transferencia' ? comprobanteFoto || null : null,
         total,
         metodoPago,
         cajeroId,

@@ -39,6 +39,12 @@ export default function Vender() {
   const [metodoPago, setMetodoPago] = useState<'efectivo' | 'tarjeta' | 'transferencia'>('efectivo')
   const [pin, setPin] = useState('')
   const [pinSubmitting, setPinSubmitting] = useState(false)
+  const [numeroRecibo, setNumeroRecibo] = useState('')
+  const [referencia, setReferencia] = useState('')
+  const [comprobanteFoto, setComprobanteFoto] = useState<string | null>(null)
+  const [montoRecibido, setMontoRecibido] = useState('')
+  const [banco, setBanco] = useState('')
+  const [numeroCupon, setNumeroCupon] = useState('')
 
   useEffect(() => {
     Promise.all([
@@ -59,13 +65,50 @@ export default function Vender() {
     addToCart({ id: item.id, nombre: item.nombre, precio: item.precio, tipo })
   }
 
+  const handleFotoComprobante = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const img = new Image()
+      img.onload = () => {
+        const maxW = 1000
+        const scale = Math.min(1, maxW / img.width)
+        const canvas = document.createElement('canvas')
+        canvas.width = img.width * scale
+        canvas.height = img.height * scale
+        const ctx = canvas.getContext('2d')
+        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height)
+        setComprobanteFoto(canvas.toDataURL('image/jpeg', 0.7))
+      }
+      img.src = reader.result as string
+    }
+    reader.readAsDataURL(file)
+  }
+
   const handleCheckout = async () => {
     if (!selectedEmpleado) {
       toast('Selecciona cajero', 'error')
       return
     }
+    if (!numeroRecibo.trim()) {
+      toast('Ingresa el número de recibo entregado al cliente', 'error')
+      return
+    }
     if (!pin) {
       toast('Ingresa PIN', 'error')
+      return
+    }
+    if (metodoPago === 'efectivo' && (!montoRecibido || parseFloat(montoRecibido) < total)) {
+      toast('Ingresa con cuánto paga el cliente (debe cubrir el total)', 'error')
+      return
+    }
+    if (metodoPago === 'transferencia' && !referencia.trim()) {
+      toast('Ingresa el número de transferencia', 'error')
+      return
+    }
+    if (metodoPago === 'tarjeta' && (!banco.trim() || !numeroCupon.trim())) {
+      toast('Ingresa el banco y el número de cupón', 'error')
       return
     }
 
@@ -84,6 +127,12 @@ export default function Vender() {
           socioId: selectedSocio || null,
           metodoPago,
           pin,
+          numeroRecibo: numeroRecibo.trim(),
+          referencia: metodoPago === 'transferencia' ? referencia.trim() : undefined,
+          montoRecibido: metodoPago === 'efectivo' ? parseFloat(montoRecibido) : undefined,
+          banco: metodoPago === 'tarjeta' ? banco.trim() : undefined,
+          numeroCupon: metodoPago === 'tarjeta' ? numeroCupon.trim() : undefined,
+          comprobanteFoto: metodoPago === 'transferencia' ? comprobanteFoto : undefined,
         }),
       })
 
@@ -98,6 +147,12 @@ export default function Vender() {
       setPin('')
       setSelectedEmpleado('')
       setSelectedSocio('')
+      setNumeroRecibo('')
+      setReferencia('')
+      setComprobanteFoto(null)
+      setMontoRecibido('')
+      setBanco('')
+      setNumeroCupon('')
     } catch (error: any) {
       toast(error.message, 'error')
     } finally {
@@ -106,6 +161,7 @@ export default function Vender() {
   }
 
   const total = cart.reduce((sum, item) => sum + item.precio * item.cantidad, 0)
+  const vuelto = metodoPago === 'efectivo' && montoRecibido ? Math.max(0, parseFloat(montoRecibido) - total) : 0
 
   if (loading) {
     return <div className="loading">Cargando catálogo...</div>
@@ -204,6 +260,24 @@ export default function Vender() {
           <div className="modal" onClick={e => e.stopPropagation()}>
             <h2>Confirmar Venta</h2>
 
+            <div className="resumen-venta">
+              {cart.map((item, i) => (
+                <div key={i} className="resumen-row">
+                  <span>{item.cantidad}x {item.nombre}</span>
+                  <span>${(item.precio * item.cantidad).toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="form-group">
+              <label>Número de recibo (papel) *</label>
+              <input
+                value={numeroRecibo}
+                onChange={e => setNumeroRecibo(e.target.value)}
+                placeholder="Ej: 0421"
+              />
+            </div>
+
             <div className="form-group">
               <label>Cajero *</label>
               <select
@@ -248,6 +322,73 @@ export default function Vender() {
                 ))}
               </div>
             </div>
+
+            {metodoPago === 'efectivo' && (
+              <div className="form-group">
+                <label>Paga con *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={montoRecibido}
+                  onChange={e => setMontoRecibido(e.target.value)}
+                  placeholder="0.00"
+                />
+                {montoRecibido && (
+                  <div className="vuelto-info">Vuelto: ${vuelto.toFixed(2)}</div>
+                )}
+              </div>
+            )}
+
+            {metodoPago === 'transferencia' && (
+              <>
+                <div className="form-group">
+                  <label>Número de transferencia *</label>
+                  <input
+                    value={referencia}
+                    onChange={e => setReferencia(e.target.value)}
+                    placeholder="Ej: 000123456"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Comprobante</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    id="foto-comprobante"
+                    style={{ display: 'none' }}
+                    onChange={handleFotoComprobante}
+                  />
+                  <label htmlFor="foto-comprobante" className="btn-secondary foto-btn">
+                    📷 {comprobanteFoto ? 'Cambiar foto' : 'Tomar foto del comprobante'}
+                  </label>
+                  {comprobanteFoto && (
+                    <img src={comprobanteFoto} alt="Comprobante" className="comprobante-preview" />
+                  )}
+                </div>
+              </>
+            )}
+
+            {metodoPago === 'tarjeta' && (
+              <>
+                <div className="form-group">
+                  <label>Banco *</label>
+                  <input
+                    value={banco}
+                    onChange={e => setBanco(e.target.value)}
+                    placeholder="Ej: Banco Agrícola"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Número de cupón *</label>
+                  <input
+                    value={numeroCupon}
+                    onChange={e => setNumeroCupon(e.target.value)}
+                    placeholder="Ej: 000789"
+                  />
+                </div>
+              </>
+            )}
 
             <div className="form-group">
               <label>PIN Cajero *</label>

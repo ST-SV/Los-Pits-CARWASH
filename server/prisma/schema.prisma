@@ -137,7 +137,12 @@ model Venta {
   total               Float
   metodoPago          String    // "efectivo" | "tarjeta" | "transferencia"
   numeroRecibo        String
-  referencia          String?   // transferencia o POS ticket number
+  referencia          String?   // numero de transferencia
+  montoRecibido       Float?    // efectivo: monto con el que paga el cliente
+  vuelto              Float?    // efectivo: cambio a devolver
+  banco               String?   // tarjeta: banco emisor
+  numeroCupon         String?   // tarjeta: numero de cupon del posnet
+  comprobanteFoto     String?   // transferencia: foto del comprobante (base64)
   cajeroId            String
   cajero              Empleado  @relation("CajeroVentas", fields: [cajeroId], references: [id])
   socioId             String?

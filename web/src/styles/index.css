@@ -368,6 +368,41 @@ main {
   margin-bottom: 14px;
 }
 
+.resumen-venta {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+}
+
+.resumen-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  padding: 3px 0;
+}
+
+.vuelto-info {
+  margin-top: 6px;
+  font-weight: 600;
+  color: var(--green, #4caf50);
+}
+
+.foto-btn {
+  display: inline-block;
+  text-align: center;
+  cursor: pointer;
+}
+
+.comprobante-preview {
+  margin-top: 8px;
+  max-width: 100%;
+  max-height: 200px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+
 .form-group label {
   display: block;
   font-size: 12px;
