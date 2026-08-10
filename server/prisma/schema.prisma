@@ -122,10 +122,12 @@ model CatalogoProducto {
   id    String  @id @default(cuid())
   nombre String  @unique
   precio Float
+  categoria String @default("Otros") // "Bebidas Frías" | "Bebidas Calientes" | "Snacks" | "Otros"
 
   items   VentaItem[]  @relation("ProductoItems")
 
   @@index([nombre])
+  @@index([categoria])
 }
 
 model Venta {

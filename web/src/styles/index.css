@@ -144,6 +144,15 @@ main {
   margin-bottom: 16px;
 }
 
+.cat-subheader {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted, #999);
+  margin: 12px 0 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
 .item-btn {
   background: var(--panel);
   border: 1px solid var(--line);

@@ -95,7 +95,10 @@ interface CatalogoItem {
   id: string
   nombre: string
   precio: number
+  categoria?: string
 }
+
+const CATEGORIAS_PRODUCTO = ['Bebidas Frías', 'Bebidas Calientes', 'Snacks', 'Otros']
 
 interface Catalogo {
   servicios: CatalogoItem[]
@@ -158,7 +161,7 @@ export default function Admin() {
   const [showEmpForm, setShowEmpForm] = useState(false)
   const [editingEmp, setEditingEmp] = useState<Empleado | null>(null)
 
-  const [catForm, setCatForm] = useState<{ tipo: 'servicio' | 'producto'; nombre: string; precio: string; id?: string } | null>(null)
+  const [catForm, setCatForm] = useState<{ tipo: 'servicio' | 'producto'; nombre: string; precio: string; categoria: string; id?: string } | null>(null)
 
   const [oldPin, setOldPin] = useState('')
   const [newPin, setNewPin] = useState('')
@@ -422,7 +425,12 @@ export default function Admin() {
       const res = await fetch(url, {
         method: catForm.id ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminPin, nombre: catForm.nombre, precio: parseFloat(catForm.precio) }),
+        body: JSON.stringify({
+          adminPin,
+          nombre: catForm.nombre,
+          precio: parseFloat(catForm.precio),
+          categoria: catForm.tipo === 'producto' ? catForm.categoria : undefined,
+        }),
       })
       if (!res.ok) {
         const err = await res.json()
@@ -922,10 +930,10 @@ export default function Admin() {
       {tab === 'catalogo' && (
         <div>
           <div className="action-row">
-            <button className="btn-secondary" onClick={() => setCatForm({ tipo: 'servicio', nombre: '', precio: '' })}>
+            <button className="btn-secondary" onClick={() => setCatForm({ tipo: 'servicio', nombre: '', precio: '', categoria: '' })}>
               + Servicio
             </button>
-            <button className="btn-secondary" onClick={() => setCatForm({ tipo: 'producto', nombre: '', precio: '' })}>
+            <button className="btn-secondary" onClick={() => setCatForm({ tipo: 'producto', nombre: '', precio: '', categoria: 'Bebidas Frías' })}>
               + Producto
             </button>
           </div>
@@ -938,7 +946,7 @@ export default function Admin() {
                 <div
                   key={s.id}
                   className="list-row"
-                  onClick={() => setCatForm({ tipo: 'servicio', nombre: s.nombre, precio: String(s.precio), id: s.id })}
+                  onClick={() => setCatForm({ tipo: 'servicio', nombre: s.nombre, precio: String(s.precio), categoria: '', id: s.id })}
                 >
                   <div className="main">
                     <div className="title">{s.nombre}</div>
@@ -963,31 +971,44 @@ export default function Admin() {
           {!catalogo || catalogo.productos.length === 0 ? (
             <p className="empty-state">Sin productos</p>
           ) : (
-            <div className="list">
-              {catalogo.productos.map(p => (
-                <div
-                  key={p.id}
-                  className="list-row"
-                  onClick={() => setCatForm({ tipo: 'producto', nombre: p.nombre, precio: String(p.precio), id: p.id })}
-                >
-                  <div className="main">
-                    <div className="title">{p.nombre}</div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div className="amount">${p.precio.toFixed(2)}</div>
-                    <button
-                      className="btn-danger"
-                      onClick={ev => {
-                        ev.stopPropagation()
-                        handleDeleteCat('producto', p.id)
-                      }}
-                    >
-                      Eliminar
-                    </button>
-                  </div>
+            CATEGORIAS_PRODUCTO.filter(cat =>
+              catalogo.productos.some(p => (p.categoria || 'Otros') === cat)
+            ).map(cat => (
+              <div key={cat} style={{ marginBottom: 12 }}>
+                <div className="k" style={{ margin: '8px 0 4px', fontWeight: 700 }}>
+                  {cat}
                 </div>
-              ))}
-            </div>
+                <div className="list">
+                  {catalogo.productos
+                    .filter(p => (p.categoria || 'Otros') === cat)
+                    .map(p => (
+                      <div
+                        key={p.id}
+                        className="list-row"
+                        onClick={() =>
+                          setCatForm({ tipo: 'producto', nombre: p.nombre, precio: String(p.precio), categoria: p.categoria || 'Otros', id: p.id })
+                        }
+                      >
+                        <div className="main">
+                          <div className="title">{p.nombre}</div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div className="amount">${p.precio.toFixed(2)}</div>
+                          <button
+                            className="btn-danger"
+                            onClick={ev => {
+                              ev.stopPropagation()
+                              handleDeleteCat('producto', p.id)
+                            }}
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            ))
           )}
         </div>
       )}
@@ -1211,6 +1232,16 @@ export default function Admin() {
               <label>Precio *</label>
               <input type="number" step="0.01" value={catForm.precio} onChange={e => setCatForm({ ...catForm, precio: e.target.value })} />
             </div>
+            {catForm.tipo === 'producto' && (
+              <div className="form-group">
+                <label>Categoría *</label>
+                <select value={catForm.categoria} onChange={e => setCatForm({ ...catForm, categoria: e.target.value })}>
+                  {CATEGORIAS_PRODUCTO.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="modal-buttons">
               <button className="btn-cancel" onClick={() => setCatForm(null)}>
                 Cancelar

@@ -587,14 +587,14 @@ router.delete('/catalogo/servicio/:id', async (req: Request, res: Response) => {
 // Similar endpoints for productos...
 router.post('/catalogo/producto', async (req: Request, res: Response) => {
   try {
-    const { adminPin, nombre, precio } = req.body
+    const { adminPin, nombre, precio, categoria } = req.body
 
     if (!adminPin || !(await requireAdminPin(adminPin as string))) {
       return res.status(401).json({ error: 'Invalid admin PIN' })
     }
 
     const producto = await prisma.catalogoProducto.create({
-      data: { nombre, precio },
+      data: { nombre, precio, categoria: categoria || 'Otros' },
     })
 
     await prisma.auditLog.create({
@@ -615,7 +615,7 @@ router.post('/catalogo/producto', async (req: Request, res: Response) => {
 router.put('/catalogo/producto/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    const { adminPin, nombre, precio } = req.body
+    const { adminPin, nombre, precio, categoria } = req.body
 
     if (!adminPin || !(await requireAdminPin(adminPin as string))) {
       return res.status(401).json({ error: 'Invalid admin PIN' })
@@ -624,7 +624,7 @@ router.put('/catalogo/producto/:id', async (req: Request, res: Response) => {
     const before = await prisma.catalogoProducto.findUnique({ where: { id } })
     const producto = await prisma.catalogoProducto.update({
       where: { id },
-      data: { nombre, precio },
+      data: { nombre, precio, categoria: categoria || 'Otros' },
     })
 
     if (before) {

@@ -3,8 +3,10 @@ import { useApp } from '../context/useApp'
 
 interface Catalogo {
   servicios: { id: string; nombre: string; precio: number }[]
-  productos: { id: string; nombre: string; precio: number }[]
+  productos: { id: string; nombre: string; precio: number; categoria?: string }[]
 }
+
+const CATEGORIAS_PRODUCTO = ['Bebidas Frías', 'Bebidas Calientes', 'Snacks', 'Otros']
 
 interface CartItem {
   id: string
@@ -130,18 +132,27 @@ export default function Vender() {
       </div>
 
       <h2>Cafetería</h2>
-      <div className="grid">
-        {catalogo.productos.map(p => (
-          <button
-            key={p.id}
-            className="item-btn"
-            onClick={() => handleAddItem(p, 'producto')}
-          >
-            <span className="nm">{p.nombre}</span>
-            <span className="pr">${p.precio.toFixed(2)}</span>
-          </button>
-        ))}
-      </div>
+      {CATEGORIAS_PRODUCTO.map(cat => {
+        const items = catalogo.productos.filter(p => (p.categoria || 'Otros') === cat)
+        if (items.length === 0) return null
+        return (
+          <div key={cat}>
+            <h3 className="cat-subheader">{cat}</h3>
+            <div className="grid">
+              {items.map(p => (
+                <button
+                  key={p.id}
+                  className="item-btn"
+                  onClick={() => handleAddItem(p, 'producto')}
+                >
+                  <span className="nm">{p.nombre}</span>
+                  <span className="pr">${p.precio.toFixed(2)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )
+      })}
 
       {cart.length > 0 && (
         <div className="cart-summary">
