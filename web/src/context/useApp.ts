@@ -9,6 +9,7 @@ export interface CartItem {
   categoria?: string
   lavadorId?: string
   lavadorNombre?: string
+  lavadorIds?: string[]
 }
 
 interface AppContextType {
@@ -18,6 +19,7 @@ interface AppContextType {
   addToCart: (item: Omit<CartItem, 'cantidad'>) => void
   removeFromCart: (index: number) => void
   updateCartQty: (index: number, cantidad: number) => void
+  updateCartLavadores: (index: number, lavadorIds: string[]) => void
   clearCart: () => void
   toast: (msg: string, type?: 'success' | 'error' | 'info') => void
 }
@@ -53,6 +55,14 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     })
   }, [])
 
+  const updateCartLavadores = useCallback((index: number, lavadorIds: string[]) => {
+    setCart((prev) => {
+      const newCart = [...prev]
+      newCart[index] = { ...newCart[index], lavadorIds }
+      return newCart
+    })
+  }, [])
+
   const clearCart = useCallback(() => {
     setCart([])
   }, [])
@@ -73,6 +83,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     addToCart,
     removeFromCart,
     updateCartQty,
+    updateCartLavadores,
     clearCart,
     toast,
   }

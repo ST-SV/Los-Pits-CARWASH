@@ -19,6 +19,7 @@ interface CartItem {
 interface Empleado {
   id: string
   nombre: string
+  role?: string
 }
 
 interface Socio {
@@ -28,7 +29,7 @@ interface Socio {
 }
 
 export default function Vender() {
-  const { cart, addToCart, removeFromCart, updateCartQty, clearCart, toast } = useApp()
+  const { cart, addToCart, removeFromCart, updateCartQty, updateCartLavadores, clearCart, toast } = useApp()
   const [catalogo, setCatalogo] = useState<Catalogo | null>(null)
   const [empleados, setEmpleados] = useState<Empleado[]>([])
   const [socios, setSocios] = useState<Socio[]>([])
@@ -61,8 +62,18 @@ export default function Vender() {
       .catch(() => setLoading(false))
   }, [])
 
+  const lavadores = empleados.filter(e => e.role === 'lavador')
+
   const handleAddItem = (item: { id: string; nombre: string; precio: number }, tipo: 'servicio' | 'producto') => {
     addToCart({ id: item.id, nombre: item.nombre, precio: item.precio, tipo })
+  }
+
+  const toggleLavador = (index: number, lavadorId: string) => {
+    const current = cart[index].lavadorIds || []
+    const next = current.includes(lavadorId)
+      ? current.filter(id => id !== lavadorId)
+      : [...current, lavadorId]
+    updateCartLavadores(index, next)
   }
 
   const handleFotoComprobante = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -95,6 +106,11 @@ export default function Vender() {
       toast('Ingresa el número de recibo entregado al cliente', 'error')
       return
     }
+    const servicioSinLavador = cart.find(item => item.tipo === 'servicio' && !(item.lavadorIds && item.lavadorIds.length > 0))
+    if (servicioSinLavador) {
+      toast(`Selecciona el/los lavador(es) de "${servicioSinLavador.nombre}"`, 'error')
+      return
+    }
     if (!pin) {
       toast('Ingresa PIN', 'error')
       return
@@ -122,6 +138,7 @@ export default function Vender() {
             catalogoServicioId: item.tipo === 'servicio' ? item.id : null,
             catalogoProductoId: item.tipo === 'producto' ? item.id : null,
             cantidad: item.cantidad,
+            lavadorIds: item.tipo === 'servicio' ? item.lavadorIds || [] : undefined,
           })),
           empleadoId: selectedEmpleado,
           socioId: selectedSocio || null,
@@ -239,6 +256,24 @@ export default function Vender() {
                     ✕
                   </button>
                 </div>
+                {item.tipo === 'servicio' && (
+                  <div className="lavador-chips">
+                    <span className="lavador-label">Lavador(es):</span>
+                    {lavadores.map(l => {
+                      const selected = (item.lavadorIds || []).includes(l.id)
+                      return (
+                        <button
+                          key={l.id}
+                          type="button"
+                          className={`lavador-chip ${selected ? 'selected' : ''}`}
+                          onClick={() => toggleLavador(i, l.id)}
+                        >
+                          {l.nombre}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             ))}
           </div>

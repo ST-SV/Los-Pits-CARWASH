@@ -68,6 +68,7 @@ router.post('/venta', async (req: Request, res: Response) => {
 
     // Fetch items from catalog to calculate total
     const ventaItems: any[] = []
+    const resumenParts: string[] = []
     let total = 0
 
     for (const item of items) {
@@ -78,13 +79,22 @@ router.post('/venta', async (req: Request, res: Response) => {
         if (!servicio) {
           return res.status(404).json({ error: `Servicio ${item.catalogoServicioId} not found` })
         }
-        ventaItems.push({
-          nombre: servicio.nombre,
-          precio: servicio.precio,
-          cantidad: item.cantidad,
-          categoria: 'servicio',
-        })
+        const lavadorIds: string[] = Array.isArray(item.lavadorIds) ? item.lavadorIds.filter(Boolean) : []
+        if (lavadorIds.length === 0) {
+          return res.status(400).json({ error: `Falta el lavador para ${servicio.nombre}` })
+        }
+        const precioPorLavador = servicio.precio / lavadorIds.length
+        for (const lavadorId of lavadorIds) {
+          ventaItems.push({
+            nombre: servicio.nombre,
+            precio: precioPorLavador,
+            cantidad: item.cantidad,
+            categoria: 'servicio',
+            lavadorId,
+          })
+        }
         total += servicio.precio * item.cantidad
+        resumenParts.push(`${item.cantidad}x ${servicio.nombre}`)
       } else if (item.catalogoProductoId) {
         const producto = await prisma.catalogoProducto.findUnique({
           where: { id: item.catalogoProductoId },
@@ -99,6 +109,7 @@ router.post('/venta', async (req: Request, res: Response) => {
           categoria: 'producto',
         })
         total += producto.precio * item.cantidad
+        resumenParts.push(`${item.cantidad}x ${producto.nombre}`)
       }
     }
 
@@ -129,7 +140,7 @@ router.post('/venta', async (req: Request, res: Response) => {
     })
 
     // Log audit
-    const itemsResumen = venta.items.map((it: any) => `${it.cantidad}x ${it.nombre}`).join(', ')
+    const itemsResumen = resumenParts.join(', ')
     await prisma.auditLog.create({
       data: {
         actor: empleado.nombre,

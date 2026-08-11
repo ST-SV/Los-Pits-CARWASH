@@ -403,6 +403,41 @@ main {
   border: 1px solid var(--line);
 }
 
+.lavador-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line);
+}
+
+.lavador-label {
+  font-size: 11px;
+  color: var(--muted, #999);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-right: 2px;
+}
+
+.lavador-chip {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.lavador-chip.selected {
+  background: var(--accent, #f5a623);
+  border-color: var(--accent, #f5a623);
+  color: #111;
+  font-weight: 600;
+}
+
 .form-group label {
   display: block;
   font-size: 12px;
