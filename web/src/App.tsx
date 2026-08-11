@@ -5,6 +5,7 @@ import Vender from './pages/Vender'
 import Caja from './pages/Caja'
 import Socios from './pages/Socios'
 import Admin from './pages/Admin'
+import FirmaRecibo from './pages/FirmaRecibo'
 
 function AppContent() {
   const { authenticated, setAuthenticated } = useApp()
@@ -82,6 +83,11 @@ function AppContent() {
 }
 
 export default function App() {
+  const reciboMatch = window.location.pathname.match(/^\/recibo\/([a-zA-Z0-9]+)/)
+  if (reciboMatch) {
+    return <FirmaRecibo token={reciboMatch[1]} />
+  }
+
   return (
     <AppProvider>
       <AppContent />

@@ -45,6 +45,21 @@ model Empleado {
   auditLogs           AuditLog[] @relation("AuditActor")
   turnos              Turno[]   @relation("EmpleadoTurnos")
   descuentos          Descuento[] @relation("EmpleadoDescuentos")
+  recibos             ReciboFirma[] @relation("EmpleadoRecibos")
+}
+
+model ReciboFirma {
+  id          String    @id @default(cuid())
+  empleadoId  String
+  empleado    Empleado  @relation("EmpleadoRecibos", fields: [empleadoId], references: [id], onDelete: Cascade)
+  periodoKey  String    // "2026-08-Q1" | "2026-08-Q2" | "2026-08-M"
+  token       String    @unique
+  firmaNombre String?
+  firmaFecha  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([empleadoId, periodoKey])
+  @@index([token])
 }
 
 model Turno {

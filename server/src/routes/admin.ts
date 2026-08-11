@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express'
 import { PrismaClient } from '@prisma/client'
+import crypto from 'crypto'
 import { hashPin, verifyPin, hashPassword } from '../utils/auth.js'
+import { computeRecibo } from '../utils/recibo.js'
 
 const router = Router()
 const prisma = new PrismaClient()
@@ -362,7 +364,7 @@ router.get('/empleados', async (req: Request, res: Response) => {
 
 router.post('/empleados', async (req: Request, res: Response) => {
   try {
-    const { adminPin, nombre, apellido, role, pin, dui, email, telefono, emergName, emergPhone, horario, sueldoQuincenal, sueldoMensual, comisionPercent, comisionThreshold } = req.body
+    const { adminPin, nombre, apellido, role, pin, dui, email, telefono, emergName, emergPhone, horario, sueldoMensual, comisionPercent, comisionThreshold } = req.body
 
     if (!adminPin || !(await requireAdminPin(adminPin as string))) {
       return res.status(401).json({ error: 'Invalid admin PIN' })
@@ -384,8 +386,8 @@ router.post('/empleados', async (req: Request, res: Response) => {
         emergenciaName: emergName,
         emergenciaTelefono: emergPhone,
         horario,
-        sueldoQuincenal: sueldoQuincenal || 0,
         sueldoMensual: sueldoMensual || 0,
+        sueldoQuincenal: (sueldoMensual || 0) / 2,
         comisionPercent: comisionPercent || 5,
         comisionThreshold: comisionThreshold || 12,
       },
@@ -409,7 +411,7 @@ router.post('/empleados', async (req: Request, res: Response) => {
 router.put('/empleados/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    const { adminPin, nombre, apellido, pin, dui, email, telefono, emergName, emergPhone, horario, sueldoQuincenal, sueldoMensual, comisionPercent, comisionThreshold } = req.body
+    const { adminPin, nombre, apellido, pin, dui, email, telefono, emergName, emergPhone, horario, sueldoMensual, comisionPercent, comisionThreshold } = req.body
 
     if (!adminPin || !(await requireAdminPin(adminPin as string))) {
       return res.status(401).json({ error: 'Invalid admin PIN' })
@@ -427,8 +429,8 @@ router.put('/empleados/:id', async (req: Request, res: Response) => {
         emergenciaName: emergName,
         emergenciaTelefono: emergPhone,
         horario,
-        sueldoQuincenal: sueldoQuincenal ?? undefined,
         sueldoMensual: sueldoMensual ?? undefined,
+        sueldoQuincenal: sueldoMensual !== undefined && sueldoMensual !== null ? sueldoMensual / 2 : undefined,
         comisionPercent: comisionPercent ?? undefined,
         comisionThreshold: comisionThreshold ?? undefined,
       },
@@ -1022,5 +1024,31 @@ router.delete('/horarios/turnos/:id', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error deleting turno:', error)
     res.status(500).json({ error: 'Failed to delete turno' })
+  }
+})
+
+// PLANILLA: generar/obtener link de recibo para firma online de un empleado en un período
+router.post('/planilla/recibo-link', async (req: Request, res: Response) => {
+  try {
+    const { adminPin, empleadoId, periodoKey } = req.body
+
+    if (!adminPin || !(await requireAdminPin(adminPin))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+    if (!empleadoId || !periodoKey) {
+      return res.status(400).json({ error: 'empleadoId y periodoKey son requeridos' })
+    }
+
+    let recibo = await prisma.reciboFirma.findUnique({ where: { empleadoId_periodoKey: { empleadoId, periodoKey } } })
+    if (!recibo) {
+      recibo = await prisma.reciboFirma.create({
+        data: { empleadoId, periodoKey, token: crypto.randomBytes(16).toString('hex') },
+      })
+    }
+
+    res.json(recibo)
+  } catch (error) {
+    console.error('Error generating recibo link:', error)
+    res.status(500).json({ error: 'Failed to generate recibo link' })
   }
 })

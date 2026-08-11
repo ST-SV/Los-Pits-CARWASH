@@ -352,6 +352,82 @@ export default function Admin() {
     }
   }
 
+  const enviarRecibo = async (emp: PlanillaEmpleado, p: PlanillaPeriodo) => {
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/admin/planilla/recibo-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPin, empleadoId: emp.id, periodoKey: p.periodoKey }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Error al generar el link')
+      const recibo = await res.json()
+      const url = `${window.location.origin}/recibo/${recibo.token}`
+      try {
+        await navigator.clipboard.writeText(url)
+        toast(
+          recibo.firmaNombre
+            ? `Link copiado. Ya fue firmado por ${recibo.firmaNombre}.`
+            : 'Link copiado al portapapeles. Envíaselo al empleado para que firme.',
+          'success'
+        )
+      } catch {
+        window.prompt('Copia el link para enviar al empleado:', url)
+      }
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const imprimirRecibo = (emp: PlanillaEmpleado, p: PlanillaPeriodo) => {
+    const w = window.open('', '_blank')
+    if (!w) return
+    const fecha = new Date().toLocaleDateString('es-SV', { year: 'numeric', month: 'long', day: 'numeric' })
+    const descuentosHtml = p.descuentos
+      .map(d => `<tr><td>Descuento: ${d.motivo}</td><td class="num">-$${d.monto.toFixed(2)}</td></tr>`)
+      .join('')
+    w.document.write(`
+      <html>
+      <head>
+        <title>Recibo de sueldo - ${emp.nombre} ${emp.apellido || ''} - ${p.label}</title>
+        <meta charset="utf-8" />
+        <style>
+          body { font-family: Arial, sans-serif; padding: 32px; color: #111; }
+          h1 { font-size: 18px; margin-bottom: 0; }
+          .sub { color: #555; font-size: 13px; margin-top: 4px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          td { padding: 6px 4px; border-bottom: 1px solid #ddd; font-size: 14px; }
+          .num { text-align: right; }
+          .total td { font-weight: 700; font-size: 16px; border-top: 2px solid #111; border-bottom: none; }
+          .firma { margin-top: 60px; display: flex; justify-content: space-between; }
+          .firma div { width: 45%; border-top: 1px solid #111; text-align: center; padding-top: 6px; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <h1>Los Pits Car Wash — Recibo de sueldo</h1>
+        <div class="sub">Emitido el ${fecha}</div>
+        <table>
+          <tr><td>Empleado</td><td class="num">${emp.nombre} ${emp.apellido || ''}</td></tr>
+          <tr><td>Puesto</td><td class="num">${emp.role}</td></tr>
+          <tr><td>Período</td><td class="num">${p.label}</td></tr>
+          <tr><td>Sueldo base</td><td class="num">$${p.sueldoBase.toFixed(2)}</td></tr>
+          <tr><td>Comisión (${emp.comisionPercent || 0}% · ${p.autosLavados} autos)</td><td class="num">$${p.comision.toFixed(2)}</td></tr>
+          ${descuentosHtml}
+          <tr class="total"><td>Total a pagar</td><td class="num">$${p.totalPagar.toFixed(2)}</td></tr>
+        </table>
+        <div class="firma">
+          <div>Firma del empleado</div>
+          <div>Firma de administración</div>
+        </div>
+        <script>window.onload = () => window.print()</script>
+      </body>
+      </html>
+    `)
+    w.document.close()
+  }
+
   const openNewEmp = () => {
     setEditingEmp(null)
     setEmpForm({ role: 'lavador' })
@@ -740,6 +816,20 @@ export default function Admin() {
                             >
                               + Descuento
                             </button>
+                            <button
+                              className="btn-secondary"
+                              style={{ fontSize: 12, padding: '4px 10px', maxWidth: 180 }}
+                              onClick={() => imprimirRecibo(emp, p)}
+                            >
+                              🖨 Recibo
+                            </button>
+                            <button
+                              className="btn-secondary"
+                              style={{ fontSize: 12, padding: '4px 10px', maxWidth: 220 }}
+                              onClick={() => enviarRecibo(emp, p)}
+                            >
+                              🔗 Enviar para firmar
+                            </button>
                           </div>
                         </div>
                       ))}
@@ -1102,18 +1192,6 @@ export default function Admin() {
               <input value={empForm.horario || ''} onChange={e => setEmpForm({ ...empForm, horario: e.target.value })} />
             </div>
             <div className="form-group">
-              <label>Sueldo quincenal</label>
-              <input
-                type="number"
-                step="0.01"
-                value={empForm.sueldoQuincenal ?? ''}
-                onChange={e => {
-                  const val = parseFloat(e.target.value) || undefined
-                  setEmpForm({ ...empForm, sueldoQuincenal: val, sueldoMensual: val ? undefined : empForm.sueldoMensual })
-                }}
-              />
-            </div>
-            <div className="form-group">
               <label>Sueldo mensual</label>
               <input
                 type="number"
@@ -1121,10 +1199,12 @@ export default function Admin() {
                 value={empForm.sueldoMensual ?? ''}
                 onChange={e => {
                   const val = parseFloat(e.target.value) || undefined
-                  setEmpForm({ ...empForm, sueldoMensual: val, sueldoQuincenal: val ? undefined : empForm.sueldoQuincenal })
+                  setEmpForm({ ...empForm, sueldoMensual: val })
                 }}
               />
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>Usa uno u otro, no ambos.</span>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                Quincena (calculado): {((empForm.sueldoMensual || 0) / 2).toFixed(2)}
+              </span>
             </div>
             <div className="form-group">
               <label>Comisión %</label>

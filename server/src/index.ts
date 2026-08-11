@@ -9,6 +9,7 @@ import { venderRouter } from './routes/vender.js'
 import { cajaRouter } from './routes/caja.js'
 import { sociosRouter } from './routes/socios.js'
 import { adminRouter } from './routes/admin.js'
+import { publicRouter } from './routes/public.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -57,6 +58,7 @@ app.use('/api/vender', requireAuth, venderRouter)
 app.use('/api/caja', requireAuth, cajaRouter)
 app.use('/api/socios', requireAuth, sociosRouter)
 app.use('/api/admin', requireAuth, adminRouter)
+app.use('/api/public', publicRouter)
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' })
