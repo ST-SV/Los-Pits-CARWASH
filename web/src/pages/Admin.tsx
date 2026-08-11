@@ -1107,7 +1107,10 @@ export default function Admin() {
                 type="number"
                 step="0.01"
                 value={empForm.sueldoQuincenal ?? ''}
-                onChange={e => setEmpForm({ ...empForm, sueldoQuincenal: parseFloat(e.target.value) || undefined })}
+                onChange={e => {
+                  const val = parseFloat(e.target.value) || undefined
+                  setEmpForm({ ...empForm, sueldoQuincenal: val, sueldoMensual: val ? undefined : empForm.sueldoMensual })
+                }}
               />
             </div>
             <div className="form-group">
@@ -1116,8 +1119,12 @@ export default function Admin() {
                 type="number"
                 step="0.01"
                 value={empForm.sueldoMensual ?? ''}
-                onChange={e => setEmpForm({ ...empForm, sueldoMensual: parseFloat(e.target.value) || undefined })}
+                onChange={e => {
+                  const val = parseFloat(e.target.value) || undefined
+                  setEmpForm({ ...empForm, sueldoMensual: val, sueldoQuincenal: val ? undefined : empForm.sueldoQuincenal })
+                }}
               />
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>Usa uno u otro, no ambos.</span>
             </div>
             <div className="form-group">
               <label>Comisión %</label>

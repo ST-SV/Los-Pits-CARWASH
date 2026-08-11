@@ -152,7 +152,11 @@ router.get('/planilla', async (req: Request, res: Response) => {
       .filter((e: any) => (e.sueldoQuincenal || 0) > 0 || (e.sueldoMensual || 0) > 0)
       .map((e: any) => {
         const periodos = periodDef
-          .filter(p => (p.key === 'M' ? (e.sueldoMensual || 0) > 0 : (e.sueldoQuincenal || 0) > 0))
+          .filter(p =>
+            p.key === 'M'
+              ? (e.sueldoMensual || 0) > 0 && !((e.sueldoQuincenal || 0) > 0)
+              : (e.sueldoQuincenal || 0) > 0
+          )
           .map(p => {
             const itemsPeriodo = itemsMes.filter(
               (it: any) => it.lavadorId === e.id && new Date(it.venta.fecha) >= p.start && new Date(it.venta.fecha) < p.end
