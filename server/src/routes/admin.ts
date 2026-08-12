@@ -9,11 +9,25 @@ const prisma = new PrismaClient()
 
 export const adminRouter = router
 
-const requireAdminPin = async (adminPin: string) => {
+// Resuelve quién está autenticando con este PIN de admin: el PIN maestro de administrador,
+// o el PIN individual de alguno de los socios (role: 'socio'). Usado para gatear el acceso
+// al panel admin y para atribuir cada acción de auditoría a la persona real.
+const resolveAdminActor = async (adminPin: string): Promise<{ nombre: string; empleadoId?: string } | null> => {
+  if (!adminPin) return null
   const config = await prisma.appConfig.findFirst()
-  if (!config) return false
-  return verifyPin(adminPin, config.adminPinHash)
+  if (config && (await verifyPin(adminPin, config.adminPinHash))) {
+    return { nombre: 'Administrador' }
+  }
+  const socios = await prisma.empleado.findMany({ where: { role: 'socio', pinHash: { not: null } } })
+  for (const s of socios) {
+    if (s.pinHash && (await verifyPin(adminPin, s.pinHash))) {
+      return { nombre: s.apellido ? `${s.nombre} ${s.apellido}` : s.nombre, empleadoId: s.id }
+    }
+  }
+  return null
 }
+
+const requireAdminPin = async (adminPin: string) => !!(await resolveAdminActor(adminPin))
 
 // HISTORIAL: Agregados por semana/quincena/mes + días cerrados
 router.get('/historial', async (req: Request, res: Response) => {
@@ -297,7 +311,8 @@ router.post('/planilla/descuento', async (req: Request, res: Response) => {
 
     await prisma.auditLog.create({
       data: {
-        actor: 'Administrador',
+        actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(adminPin))?.empleadoId,
         accion: 'Descuento agregado',
         detalle: `${empleado.nombre} ${empleado.apellido || ''} · ${periodo} · $${descuento.monto.toFixed(2)} · ${motivo}`,
       },
@@ -329,7 +344,8 @@ router.delete('/planilla/descuento/:id', async (req: Request, res: Response) => 
 
     await prisma.auditLog.create({
       data: {
-        actor: 'Administrador',
+        actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(adminPin))?.empleadoId,
         accion: 'Descuento eliminado',
         detalle: `${descuento.empleado.nombre} ${descuento.empleado.apellido || ''} · ${descuento.periodo} · $${descuento.monto.toFixed(2)}`,
       },
@@ -364,7 +380,7 @@ router.get('/empleados', async (req: Request, res: Response) => {
 
 router.post('/empleados', async (req: Request, res: Response) => {
   try {
-    const { adminPin, nombre, apellido, role, pin, dui, email, telefono, emergName, emergPhone, horario, sueldoMensual, comisionPercent, comisionThreshold } = req.body
+    const { adminPin, nombre, apellido, role, pin, dui, tipoDocumento, numeroDocumento, email, telefono, emergName, emergPhone, horario, sueldoMensual, comisionPercent, comisionThreshold } = req.body
 
     if (!adminPin || !(await requireAdminPin(adminPin as string))) {
       return res.status(401).json({ error: 'Invalid admin PIN' })
@@ -374,6 +390,10 @@ router.post('/empleados', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Nombre and role required' })
     }
 
+    if (role === 'socio' && !pin) {
+      return res.status(400).json({ error: 'El PIN es requerido para socios' })
+    }
+
     const empleado = await prisma.empleado.create({
       data: {
         nombre,
@@ -381,6 +401,8 @@ router.post('/empleados', async (req: Request, res: Response) => {
         role,
         pinHash: pin ? await hashPin(pin) : null,
         dui,
+        tipoDocumento,
+        numeroDocumento,
         email,
         telefono,
         emergenciaName: emergName,
@@ -395,7 +417,8 @@ router.post('/empleados', async (req: Request, res: Response) => {
 
     await prisma.auditLog.create({
       data: {
-        actor: 'Administrador',
+        actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(adminPin))?.empleadoId,
         accion: 'Empleado creado',
         detalle: `${empleado.nombre} · ${role}`,
       },
@@ -411,7 +434,7 @@ router.post('/empleados', async (req: Request, res: Response) => {
 router.put('/empleados/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    const { adminPin, nombre, apellido, pin, dui, email, telefono, emergName, emergPhone, horario, sueldoMensual, comisionPercent, comisionThreshold } = req.body
+    const { adminPin, nombre, apellido, pin, dui, tipoDocumento, numeroDocumento, email, telefono, emergName, emergPhone, horario, sueldoMensual, comisionPercent, comisionThreshold } = req.body
 
     if (!adminPin || !(await requireAdminPin(adminPin as string))) {
       return res.status(401).json({ error: 'Invalid admin PIN' })
@@ -424,6 +447,8 @@ router.put('/empleados/:id', async (req: Request, res: Response) => {
         apellido,
         pinHash: pin ? await hashPin(pin) : undefined,
         dui,
+        tipoDocumento,
+        numeroDocumento,
         email,
         telefono,
         emergenciaName: emergName,
@@ -438,7 +463,8 @@ router.put('/empleados/:id', async (req: Request, res: Response) => {
 
     await prisma.auditLog.create({
       data: {
-        actor: 'Administrador',
+        actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(adminPin))?.empleadoId,
         accion: 'Empleado modificado',
         detalle: `${empleado.nombre}`,
       },
@@ -467,7 +493,8 @@ router.delete('/empleados/:id', async (req: Request, res: Response) => {
     if (empleado) {
       await prisma.auditLog.create({
         data: {
-          actor: 'Administrador',
+          actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(adminPin))?.empleadoId,
           accion: 'Empleado eliminado',
           detalle: `${empleado.nombre}`,
         },
@@ -516,7 +543,8 @@ router.post('/catalogo/servicio', async (req: Request, res: Response) => {
 
     await prisma.auditLog.create({
       data: {
-        actor: 'Administrador',
+        actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(adminPin))?.empleadoId,
         accion: 'Servicio creado',
         detalle: `${nombre} · $${precio.toFixed(2)}`,
       },
@@ -547,7 +575,8 @@ router.put('/catalogo/servicio/:id', async (req: Request, res: Response) => {
     if (before) {
       await prisma.auditLog.create({
         data: {
-          actor: 'Administrador',
+          actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(adminPin))?.empleadoId,
           accion: 'Precio modificado',
           detalle: `${before.nombre}: $${before.precio.toFixed(2)} → $${precio.toFixed(2)}`,
         },
@@ -576,7 +605,8 @@ router.delete('/catalogo/servicio/:id', async (req: Request, res: Response) => {
     if (servicio) {
       await prisma.auditLog.create({
         data: {
-          actor: 'Administrador',
+          actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(adminPin))?.empleadoId,
           accion: 'Servicio eliminado',
           detalle: `${servicio.nombre}`,
         },
@@ -605,7 +635,8 @@ router.post('/catalogo/producto', async (req: Request, res: Response) => {
 
     await prisma.auditLog.create({
       data: {
-        actor: 'Administrador',
+        actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(adminPin))?.empleadoId,
         accion: 'Producto creado',
         detalle: `${nombre} · $${precio.toFixed(2)}`,
       },
@@ -636,7 +667,8 @@ router.put('/catalogo/producto/:id', async (req: Request, res: Response) => {
     if (before) {
       await prisma.auditLog.create({
         data: {
-          actor: 'Administrador',
+          actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(adminPin))?.empleadoId,
           accion: 'Precio modificado',
           detalle: `${before.nombre}: $${before.precio.toFixed(2)} → $${precio.toFixed(2)}`,
         },
@@ -665,7 +697,8 @@ router.delete('/catalogo/producto/:id', async (req: Request, res: Response) => {
     if (producto) {
       await prisma.auditLog.create({
         data: {
-          actor: 'Administrador',
+          actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(adminPin))?.empleadoId,
           accion: 'Producto eliminado',
           detalle: `${producto.nombre}`,
         },
@@ -697,6 +730,89 @@ router.get('/auditoria', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching auditoria:', error)
     res.status(500).json({ error: 'Failed to fetch auditoria' })
+  }
+})
+
+// AUDITORIA: Exportar CSV filtrado por rango (dia/semana/quincena/mes o rango personalizado)
+// El log de auditoria es de solo lectura y append-only: no existe ni debe agregarse ruta de
+// borrado/edicion. Este endpoint solo lee y exporta.
+router.get('/auditoria/export', async (req: Request, res: Response) => {
+  try {
+    const { adminPin, rango, fecha } = req.query
+
+    if (!adminPin || !(await requireAdminPin(adminPin as string))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+
+    const baseDate = fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha as string) ? new Date(`${fecha}T00:00:00`) : new Date()
+    baseDate.setHours(0, 0, 0, 0)
+
+    let desde: Date
+    let hasta: Date
+
+    switch (rango) {
+      case 'dia':
+        desde = new Date(baseDate)
+        hasta = new Date(baseDate)
+        hasta.setDate(hasta.getDate() + 1)
+        break
+      case 'semana': {
+        const dow = (baseDate.getDay() + 6) % 7 // 0=Lunes
+        desde = new Date(baseDate)
+        desde.setDate(desde.getDate() - dow)
+        hasta = new Date(desde)
+        hasta.setDate(hasta.getDate() + 7)
+        break
+      }
+      case 'quincena': {
+        const y = baseDate.getFullYear()
+        const m = baseDate.getMonth()
+        if (baseDate.getDate() <= 15) {
+          desde = new Date(y, m, 1)
+          hasta = new Date(y, m, 16)
+        } else {
+          desde = new Date(y, m, 16)
+          hasta = new Date(y, m + 1, 1)
+        }
+        break
+      }
+      case 'mes': {
+        const y = baseDate.getFullYear()
+        const m = baseDate.getMonth()
+        desde = new Date(y, m, 1)
+        hasta = new Date(y, m + 1, 1)
+        break
+      }
+      default:
+        return res.status(400).json({ error: 'rango debe ser dia, semana, quincena o mes' })
+    }
+
+    const logs = await prisma.auditLog.findMany({
+      where: { fecha: { gte: desde, lt: hasta } },
+      orderBy: { fecha: 'asc' },
+    })
+
+    const escapeCsv = (v: string) => `"${(v || '').replace(/"/g, '""')}"`
+    const header = ['Fecha', 'Hora', 'Actor', 'Accion', 'Detalle']
+    const rows = logs.map(l => {
+      const d = new Date(l.fecha)
+      return [
+        d.toLocaleDateString('es-SV'),
+        d.toLocaleTimeString('es-SV'),
+        l.actor,
+        l.accion,
+        l.detalle || '',
+      ].map(v => escapeCsv(String(v))).join(',')
+    })
+    const csv = '﻿' + [header.map(escapeCsv).join(','), ...rows].join('\r\n')
+
+    const fileName = `auditoria_${rango}_${baseDate.toISOString().slice(0, 10)}.csv`
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
+    res.send(csv)
+  } catch (error) {
+    console.error('Error exporting auditoria:', error)
+    res.status(500).json({ error: 'Failed to export auditoria' })
   }
 })
 
@@ -766,7 +882,8 @@ router.put('/venta/:id', async (req: Request, res: Response) => {
 
     await prisma.auditLog.create({
       data: {
-        actor: 'Administrador',
+        actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(adminPin))?.empleadoId,
         accion: 'Venta modificada',
         detalle: changeDetail,
       },
@@ -806,7 +923,8 @@ router.put('/config/admin-pin', async (req: Request, res: Response) => {
 
     await prisma.auditLog.create({
       data: {
-        actor: 'Administrador',
+        actor: (await resolveAdminActor(oldPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(oldPin))?.empleadoId,
         accion: 'PIN de administrador cambiado',
         detalle: '',
       },
@@ -846,7 +964,8 @@ router.put('/config/device-password', async (req: Request, res: Response) => {
 
     await prisma.auditLog.create({
       data: {
-        actor: 'Administrador',
+        actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(adminPin))?.empleadoId,
         accion: 'Contraseña del dispositivo cambiada',
         detalle: '',
       },
@@ -939,7 +1058,8 @@ router.put('/horarios/negocio', async (req: Request, res: Response) => {
 
     await prisma.auditLog.create({
       data: {
-        actor: 'Administrador',
+        actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(adminPin))?.empleadoId,
         accion: 'Horario del negocio actualizado',
         detalle: '',
       },
@@ -979,7 +1099,8 @@ router.post('/horarios/turnos', async (req: Request, res: Response) => {
     const dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
     await prisma.auditLog.create({
       data: {
-        actor: 'Administrador',
+        actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(adminPin))?.empleadoId,
         accion: 'Turno agregado',
         detalle: `${empleado.nombre} · ${dias[Number(diaSemana)]} ${horaInicio}-${horaFin}`,
       },
@@ -1013,7 +1134,8 @@ router.delete('/horarios/turnos/:id', async (req: Request, res: Response) => {
       const dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
       await prisma.auditLog.create({
         data: {
-          actor: 'Administrador',
+          actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(adminPin))?.empleadoId,
           accion: 'Turno eliminado',
           detalle: `${turno.empleado.nombre} · ${dias[turno.diaSemana]} ${turno.horaInicio}-${turno.horaFin}`,
         },

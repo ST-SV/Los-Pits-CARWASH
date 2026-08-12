@@ -24,9 +24,11 @@ model Empleado {
   id                  String    @id @default(cuid())
   nombre              String
   apellido            String?
-  role                String    // "recepcion" | "lavador" | "extra"
+  role                String    // "recepcion" | "lavador" | "extra" | "socio"
   pinHash             String?   // bcrypt hash, null if no PIN
   dui                 String?
+  tipoDocumento       String?   // "DUI" | "PASAPORTE" | "RESIDENTE" (socios)
+  numeroDocumento     String?   // numero de documento (socios)
   email               String?
   telefono            String?
   emergenciaName      String?

@@ -80,6 +80,8 @@ interface Empleado {
   apellido?: string | null
   role: string
   dui?: string | null
+  tipoDocumento?: string | null
+  numeroDocumento?: string | null
   email?: string | null
   telefono?: string | null
   emergName?: string | null
@@ -859,27 +861,56 @@ export default function Admin() {
           {empleados.length === 0 ? (
             <p className="empty-state">Sin empleados</p>
           ) : (
-            <div className="list">
-              {empleados.map(e => (
-                <div key={e.id} className="list-row" onClick={() => openEditEmp(e)}>
-                  <div className="main">
-                    <div className="title">
-                      {e.nombre} {e.apellido}
+            <>
+              <h3>Socios (acceso al panel administrativo)</h3>
+              {empleados.filter(e => e.role === 'socio').length === 0 ? (
+                <p className="empty-state">Sin socios registrados</p>
+              ) : (
+                <div className="list">
+                  {empleados.filter(e => e.role === 'socio').map(e => (
+                    <div key={e.id} className="list-row" onClick={() => openEditEmp(e)}>
+                      <div className="main">
+                        <div className="title">
+                          {e.nombre} {e.apellido}
+                        </div>
+                        <div className="sub">{e.tipoDocumento || ''} {e.numeroDocumento || ''} · {e.telefono || ''}</div>
+                      </div>
+                      <button
+                        className="btn-danger"
+                        onClick={ev => {
+                          ev.stopPropagation()
+                          handleDeleteEmp(e.id)
+                        }}
+                      >
+                        Eliminar
+                      </button>
                     </div>
-                    <div className="sub">{e.role}</div>
-                  </div>
-                  <button
-                    className="btn-danger"
-                    onClick={ev => {
-                      ev.stopPropagation()
-                      handleDeleteEmp(e.id)
-                    }}
-                  >
-                    Eliminar
-                  </button>
+                  ))}
                 </div>
-              ))}
-            </div>
+              )}
+              <h3 style={{ marginTop: 24 }}>Personal operativo</h3>
+              <div className="list">
+                {empleados.filter(e => e.role !== 'socio').map(e => (
+                  <div key={e.id} className="list-row" onClick={() => openEditEmp(e)}>
+                    <div className="main">
+                      <div className="title">
+                        {e.nombre} {e.apellido}
+                      </div>
+                      <div className="sub">{e.role}</div>
+                    </div>
+                    <button
+                      className="btn-danger"
+                      onClick={ev => {
+                        ev.stopPropagation()
+                        handleDeleteEmp(e.id)
+                      }}
+                    >
+                      Eliminar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
       )}
@@ -1119,6 +1150,24 @@ export default function Admin() {
 
       {tab === 'auditoria' && (
         <div>
+          <div className="action-row" style={{ flexWrap: 'wrap', gap: 8 }}>
+            {([
+              ['dia', 'Descargar día'],
+              ['semana', 'Descargar semana'],
+              ['quincena', 'Descargar quincena'],
+              ['mes', 'Descargar mes'],
+            ] as const).map(([rango, label]) => (
+              <a
+                key={rango}
+                className="btn-secondary"
+                href={`/api/admin/auditoria/export?adminPin=${encodeURIComponent(adminPin)}&rango=${rango}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {label}
+              </a>
+            ))}
+          </div>
           {!auditoria ? (
             <p className="empty-state">Cargando...</p>
           ) : auditoria.length === 0 ? (
@@ -1174,70 +1223,101 @@ export default function Admin() {
               <select value={empForm.role || 'lavador'} onChange={e => setEmpForm({ ...empForm, role: e.target.value })}>
                 <option value="lavador">Lavador</option>
                 <option value="recepcion">Recepción</option>
+                <option value="socio">Socio (acceso administrativo)</option>
                 <option value="admin">Admin</option>
               </select>
             </div>
             <div className="form-group">
-              <label>{editingEmp ? 'Nuevo PIN (opcional)' : 'PIN *'}</label>
+              <label>{editingEmp ? 'Nuevo PIN (opcional)' : empForm.role === 'socio' ? 'PIN *' : 'PIN *'}</label>
               <input type="password" maxLength={4} value={empForm.pin || ''} onChange={e => setEmpForm({ ...empForm, pin: e.target.value })} />
-            </div>
-            <div className="form-group">
-              <label>DUI</label>
-              <input value={empForm.dui || ''} onChange={e => setEmpForm({ ...empForm, dui: e.target.value })} />
-            </div>
-            <div className="form-group">
-              <label>Email</label>
-              <input value={empForm.email || ''} onChange={e => setEmpForm({ ...empForm, email: e.target.value })} />
+              {empForm.role === 'socio' && (
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                  Este PIN se usa para entrar al panel administrativo y para vender como cajero.
+                </span>
+              )}
             </div>
             <div className="form-group">
               <label>Teléfono</label>
               <input value={empForm.telefono || ''} onChange={e => setEmpForm({ ...empForm, telefono: e.target.value })} />
             </div>
-            <div className="form-group">
-              <label>Contacto de emergencia</label>
-              <input value={empForm.emergName || ''} onChange={e => setEmpForm({ ...empForm, emergName: e.target.value })} />
-            </div>
-            <div className="form-group">
-              <label>Teléfono de emergencia</label>
-              <input value={empForm.emergPhone || ''} onChange={e => setEmpForm({ ...empForm, emergPhone: e.target.value })} />
-            </div>
-            <div className="form-group">
-              <label>Horario</label>
-              <input value={empForm.horario || ''} onChange={e => setEmpForm({ ...empForm, horario: e.target.value })} />
-            </div>
-            <div className="form-group">
-              <label>Sueldo mensual</label>
-              <input
-                type="number"
-                step="0.01"
-                value={empForm.sueldoMensual ?? ''}
-                onChange={e => {
-                  const val = parseFloat(e.target.value) || undefined
-                  setEmpForm({ ...empForm, sueldoMensual: val })
-                }}
-              />
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                Quincena (calculado): {((empForm.sueldoMensual || 0) / 2).toFixed(2)}
-              </span>
-            </div>
-            <div className="form-group">
-              <label>Comisión %</label>
-              <input
-                type="number"
-                step="0.1"
-                value={empForm.comisionPercent ?? ''}
-                onChange={e => setEmpForm({ ...empForm, comisionPercent: parseFloat(e.target.value) || undefined })}
-              />
-            </div>
-            <div className="form-group">
-              <label>Umbral de comisión</label>
-              <input
-                type="number"
-                step="0.01"
-                value={empForm.comisionThreshold ?? ''}
-                onChange={e => setEmpForm({ ...empForm, comisionThreshold: parseFloat(e.target.value) || undefined })}
-              />
-            </div>
+            {empForm.role === 'socio' ? (
+              <>
+                <div className="form-group">
+                  <label>Tipo de documento *</label>
+                  <select
+                    value={empForm.tipoDocumento || 'DUI'}
+                    onChange={e => setEmpForm({ ...empForm, tipoDocumento: e.target.value })}
+                  >
+                    <option value="DUI">DUI</option>
+                    <option value="PASAPORTE">Pasaporte</option>
+                    <option value="RESIDENTE">Número de residente</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Número de documento *</label>
+                  <input
+                    value={empForm.numeroDocumento || ''}
+                    onChange={e => setEmpForm({ ...empForm, numeroDocumento: e.target.value })}
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="form-group">
+                  <label>DUI</label>
+                  <input value={empForm.dui || ''} onChange={e => setEmpForm({ ...empForm, dui: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label>Email</label>
+                  <input value={empForm.email || ''} onChange={e => setEmpForm({ ...empForm, email: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label>Contacto de emergencia</label>
+                  <input value={empForm.emergName || ''} onChange={e => setEmpForm({ ...empForm, emergName: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label>Teléfono de emergencia</label>
+                  <input value={empForm.emergPhone || ''} onChange={e => setEmpForm({ ...empForm, emergPhone: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label>Horario</label>
+                  <input value={empForm.horario || ''} onChange={e => setEmpForm({ ...empForm, horario: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label>Sueldo mensual</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={empForm.sueldoMensual ?? ''}
+                    onChange={e => {
+                      const val = parseFloat(e.target.value) || undefined
+                      setEmpForm({ ...empForm, sueldoMensual: val })
+                    }}
+                  />
+                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                    Quincena (calculado): {((empForm.sueldoMensual || 0) / 2).toFixed(2)}
+                  </span>
+                </div>
+                <div className="form-group">
+                  <label>Comisión %</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={empForm.comisionPercent ?? ''}
+                    onChange={e => setEmpForm({ ...empForm, comisionPercent: parseFloat(e.target.value) || undefined })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Umbral de comisión</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={empForm.comisionThreshold ?? ''}
+                    onChange={e => setEmpForm({ ...empForm, comisionThreshold: parseFloat(e.target.value) || undefined })}
+                  />
+                </div>
+              </>
+            )}
             <div className="modal-buttons">
               <button className="btn-cancel" onClick={() => setShowEmpForm(false)}>
                 Cancelar

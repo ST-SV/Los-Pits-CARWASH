@@ -368,7 +368,7 @@ router.get('/empleados', async (req: Request, res: Response) => {
     const empleados = await prisma.empleado.findMany({
       where: {
         role: {
-          in: ['lavador', 'recepcion'],
+          in: ['lavador', 'recepcion', 'socio'],
         },
       },
       select: {
