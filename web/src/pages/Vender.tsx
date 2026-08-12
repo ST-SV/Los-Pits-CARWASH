@@ -36,6 +36,7 @@ export default function Vender() {
   const [socios, setSocios] = useState<Socio[]>([])
   const [loading, setLoading] = useState(true)
   const [showCheckout, setShowCheckout] = useState(false)
+  const [cartExpanded, setCartExpanded] = useState(false)
   const [selectedEmpleado, setSelectedEmpleado] = useState<string>('')
   const [selectedSocio, setSelectedSocio] = useState<string>('')
   const [metodoPago, setMetodoPago] = useState<'efectivo' | 'tarjeta' | 'transferencia'>('efectivo')
@@ -237,68 +238,97 @@ export default function Vender() {
         )
       })}
 
-      {cart.length > 0 && (
-        <div className="cart-summary">
-          <h2>Carrito</h2>
-          <div className="cart-items">
-            {cart.map((item, i) => (
-              <div key={i} className="cart-item">
-                <div className="item-name">{item.nombre}</div>
-                <div className="item-controls">
-                  <button
-                    className="qty-btn"
-                    onClick={() => updateCartQty(i, Math.max(1, item.cantidad - 1))}
-                  >
-                    −
-                  </button>
-                  <span className="qty">{item.cantidad}</span>
-                  <button
-                    className="qty-btn"
-                    onClick={() => updateCartQty(i, item.cantidad + 1)}
-                  >
-                    +
-                  </button>
-                  <div className="item-price">${(item.precio * item.cantidad).toFixed(2)}</div>
-                  <button
-                    className="remove-btn"
-                    onClick={() => removeFromCart(i)}
-                  >
-                    ✕
-                  </button>
-                </div>
-                {item.tipo === 'servicio' && (
-                  <div className="lavador-chips">
-                    <span className="lavador-label">Lavador(es):</span>
-                    {lavadores.map(l => {
-                      const selected = (item.lavadorIds || []).includes(l.id)
-                      return (
+      {cartExpanded && (
+        <div className="cart-sheet-overlay" onClick={() => setCartExpanded(false)}>
+          <div className="cart-sheet" onClick={e => e.stopPropagation()}>
+            <div className="cart-sheet-handle" />
+            <h2>Carrito</h2>
+            {cart.length === 0 ? (
+              <div className="empty-state">Todavía no agregaste nada</div>
+            ) : (
+              <>
+                <div className="cart-items">
+                  {cart.map((item, i) => (
+                    <div key={i} className="cart-item">
+                      <div className="item-name">{item.nombre}</div>
+                      <div className="item-controls">
                         <button
-                          key={l.id}
-                          type="button"
-                          className={`lavador-chip ${selected ? 'selected' : ''}`}
-                          onClick={() => toggleLavador(i, l.id)}
+                          className="qty-btn"
+                          onClick={() => updateCartQty(i, Math.max(1, item.cantidad - 1))}
                         >
-                          {l.nombre}
+                          −
                         </button>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            ))}
+                        <span className="qty">{item.cantidad}</span>
+                        <button
+                          className="qty-btn"
+                          onClick={() => updateCartQty(i, item.cantidad + 1)}
+                        >
+                          +
+                        </button>
+                        <div className="item-price">${(item.precio * item.cantidad).toFixed(2)}</div>
+                        <button
+                          className="remove-btn"
+                          onClick={() => removeFromCart(i)}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      {item.tipo === 'servicio' && (
+                        <div className="lavador-chips">
+                          <span className="lavador-label">Lavador(es):</span>
+                          {lavadores.map(l => {
+                            const selected = (item.lavadorIds || []).includes(l.id)
+                            return (
+                              <button
+                                key={l.id}
+                                type="button"
+                                className={`lavador-chip ${selected ? 'selected' : ''}`}
+                                onClick={() => toggleLavador(i, l.id)}
+                              >
+                                {l.nombre}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="cart-total">
+                  <span>TOTAL</span>
+                  <span className="total-amount">${total.toFixed(2)}</span>
+                </div>
+                <button
+                  className="checkout-btn"
+                  onClick={() => {
+                    setCartExpanded(false)
+                    setShowCheckout(true)
+                  }}
+                >
+                  Registrar Venta
+                </button>
+              </>
+            )}
           </div>
-          <div className="cart-total">
-            <span>TOTAL</span>
-            <span className="total-amount">${total.toFixed(2)}</span>
-          </div>
-          <button
-            className="checkout-btn"
-            onClick={() => setShowCheckout(true)}
-          >
-            Registrar Venta
-          </button>
         </div>
       )}
+
+      <div className="cart-bar">
+        <button className="cart-bar-summary" onClick={() => setCartExpanded(v => !v)}>
+          <span className="cart-bar-count">
+            {cart.length === 0 ? 'Carrito vacío' : `${cart.reduce((s, i) => s + i.cantidad, 0)} artículo(s)`}
+          </span>
+          <span className="cart-bar-total">${total.toFixed(2)}</span>
+          <span className={`cart-bar-chevron ${cartExpanded ? 'up' : ''}`}>▲</span>
+        </button>
+        <button
+          className="cart-bar-checkout"
+          disabled={cart.length === 0}
+          onClick={() => setShowCheckout(true)}
+        >
+          Cobrar
+        </button>
+      </div>
 
       {showCheckout && (
         <div className="modal-overlay" onClick={() => setShowCheckout(false)}>
