@@ -127,10 +127,12 @@ model CatalogoServicio {
   id    String  @id @default(cuid())
   nombre String  @unique
   precio Float
+  categoria String @default("General") // "SEDÁN" | "CAMIONETA PEQUEÑA" | "CAMIONETA MEDIANA" | "CAMIONETA GRANDE" | "PICK UP" | "PICK UP XL" | "General"
 
   items   VentaItem[]  @relation("ServicioItems")
 
   @@index([nombre])
+  @@index([categoria])
 }
 
 model CatalogoProducto {

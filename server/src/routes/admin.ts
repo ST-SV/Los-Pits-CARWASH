@@ -504,14 +504,14 @@ router.get('/catalogo', async (req: Request, res: Response) => {
 
 router.post('/catalogo/servicio', async (req: Request, res: Response) => {
   try {
-    const { adminPin, nombre, precio } = req.body
+    const { adminPin, nombre, precio, categoria } = req.body
 
     if (!adminPin || !(await requireAdminPin(adminPin as string))) {
       return res.status(401).json({ error: 'Invalid admin PIN' })
     }
 
     const servicio = await prisma.catalogoServicio.create({
-      data: { nombre, precio },
+      data: { nombre, precio, categoria: categoria || 'General' },
     })
 
     await prisma.auditLog.create({
@@ -532,7 +532,7 @@ router.post('/catalogo/servicio', async (req: Request, res: Response) => {
 router.put('/catalogo/servicio/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    const { adminPin, nombre, precio } = req.body
+    const { adminPin, nombre, precio, categoria } = req.body
 
     if (!adminPin || !(await requireAdminPin(adminPin as string))) {
       return res.status(401).json({ error: 'Invalid admin PIN' })
@@ -541,7 +541,7 @@ router.put('/catalogo/servicio/:id', async (req: Request, res: Response) => {
     const before = await prisma.catalogoServicio.findUnique({ where: { id } })
     const servicio = await prisma.catalogoServicio.update({
       where: { id },
-      data: { nombre, precio },
+      data: { nombre, precio, categoria: categoria || 'General' },
     })
 
     if (before) {

@@ -99,6 +99,7 @@ interface CatalogoItem {
 }
 
 const CATEGORIAS_PRODUCTO = ['Bebidas Frías', 'Bebidas Calientes', 'Snacks', 'Otros']
+const CATEGORIAS_SERVICIO = ['SEDÁN', 'CAMIONETA PEQUEÑA', 'CAMIONETA MEDIANA', 'CAMIONETA GRANDE', 'PICK UP', 'PICK UP XL', 'General']
 
 interface Catalogo {
   servicios: CatalogoItem[]
@@ -505,7 +506,7 @@ export default function Admin() {
           adminPin,
           nombre: catForm.nombre,
           precio: parseFloat(catForm.precio),
-          categoria: catForm.tipo === 'producto' ? catForm.categoria : undefined,
+          categoria: catForm.categoria,
         }),
       })
       if (!res.ok) {
@@ -1020,7 +1021,7 @@ export default function Admin() {
       {tab === 'catalogo' && (
         <div>
           <div className="action-row">
-            <button className="btn-secondary" onClick={() => setCatForm({ tipo: 'servicio', nombre: '', precio: '', categoria: '' })}>
+            <button className="btn-secondary" onClick={() => setCatForm({ tipo: 'servicio', nombre: '', precio: '', categoria: 'SEDÁN' })}>
               + Servicio
             </button>
             <button className="btn-secondary" onClick={() => setCatForm({ tipo: 'producto', nombre: '', precio: '', categoria: 'Bebidas Frías' })}>
@@ -1031,31 +1032,44 @@ export default function Admin() {
           {!catalogo || catalogo.servicios.length === 0 ? (
             <p className="empty-state">Sin servicios</p>
           ) : (
-            <div className="list">
-              {catalogo.servicios.map(s => (
-                <div
-                  key={s.id}
-                  className="list-row"
-                  onClick={() => setCatForm({ tipo: 'servicio', nombre: s.nombre, precio: String(s.precio), categoria: '', id: s.id })}
-                >
-                  <div className="main">
-                    <div className="title">{s.nombre}</div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div className="amount">${s.precio.toFixed(2)}</div>
-                    <button
-                      className="btn-danger"
-                      onClick={ev => {
-                        ev.stopPropagation()
-                        handleDeleteCat('servicio', s.id)
-                      }}
-                    >
-                      Eliminar
-                    </button>
-                  </div>
+            CATEGORIAS_SERVICIO.filter(cat =>
+              catalogo.servicios.some(s => (s.categoria || 'General') === cat)
+            ).map(cat => (
+              <div key={cat} style={{ marginBottom: 12 }}>
+                <div className="k" style={{ margin: '8px 0 4px', fontWeight: 700 }}>
+                  {cat}
                 </div>
-              ))}
-            </div>
+                <div className="list">
+                  {catalogo.servicios
+                    .filter(s => (s.categoria || 'General') === cat)
+                    .map(s => (
+                      <div
+                        key={s.id}
+                        className="list-row"
+                        onClick={() =>
+                          setCatForm({ tipo: 'servicio', nombre: s.nombre, precio: String(s.precio), categoria: s.categoria || 'General', id: s.id })
+                        }
+                      >
+                        <div className="main">
+                          <div className="title">{s.nombre}</div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div className="amount">${s.precio.toFixed(2)}</div>
+                          <button
+                            className="btn-danger"
+                            onClick={ev => {
+                              ev.stopPropagation()
+                              handleDeleteCat('servicio', s.id)
+                            }}
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            ))
           )}
           <h2>Productos</h2>
           {!catalogo || catalogo.productos.length === 0 ? (
@@ -1324,6 +1338,16 @@ export default function Admin() {
                 <label>Categoría *</label>
                 <select value={catForm.categoria} onChange={e => setCatForm({ ...catForm, categoria: e.target.value })}>
                   {CATEGORIAS_PRODUCTO.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {catForm.tipo === 'servicio' && (
+              <div className="form-group">
+                <label>Categoría (tipo de vehículo) *</label>
+                <select value={catForm.categoria} onChange={e => setCatForm({ ...catForm, categoria: e.target.value })}>
+                  {CATEGORIAS_SERVICIO.map(cat => (
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
                 </select>

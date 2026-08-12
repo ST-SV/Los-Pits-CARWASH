@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 import { useApp } from '../context/useApp'
 
 interface Catalogo {
-  servicios: { id: string; nombre: string; precio: number }[]
+  servicios: { id: string; nombre: string; precio: number; categoria?: string }[]
   productos: { id: string; nombre: string; precio: number; categoria?: string }[]
 }
 
 const CATEGORIAS_PRODUCTO = ['Bebidas Frías', 'Bebidas Calientes', 'Snacks', 'Otros']
+const CATEGORIAS_SERVICIO = ['SEDÁN', 'CAMIONETA PEQUEÑA', 'CAMIONETA MEDIANA', 'CAMIONETA GRANDE', 'PICK UP', 'PICK UP XL', 'General']
 
 interface CartItem {
   id: string
@@ -191,18 +192,27 @@ export default function Vender() {
   return (
     <div className="vender">
       <h2>Servicios</h2>
-      <div className="grid">
-        {catalogo.servicios.map(s => (
-          <button
-            key={s.id}
-            className="item-btn"
-            onClick={() => handleAddItem(s, 'servicio')}
-          >
-            <span className="nm">{s.nombre}</span>
-            <span className="pr">${s.precio.toFixed(2)}</span>
-          </button>
-        ))}
-      </div>
+      {CATEGORIAS_SERVICIO.map(cat => {
+        const items = catalogo.servicios.filter(s => (s.categoria || 'General') === cat)
+        if (items.length === 0) return null
+        return (
+          <div key={cat}>
+            <h3 className="cat-subheader">{cat}</h3>
+            <div className="grid">
+              {items.map(s => (
+                <button
+                  key={s.id}
+                  className="item-btn"
+                  onClick={() => handleAddItem(s, 'servicio')}
+                >
+                  <span className="nm">{s.nombre}</span>
+                  <span className="pr">${s.precio.toFixed(2)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )
+      })}
 
       <h2>Cafetería</h2>
       {CATEGORIAS_PRODUCTO.map(cat => {
