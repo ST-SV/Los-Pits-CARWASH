@@ -215,6 +215,11 @@ export default function Admin() {
         .then(r => r.json())
         .then(setEmpleados)
         .catch(() => {})
+    } else if (t === 'config') {
+      fetch(`/api/admin/empleados?adminPin=${encodeURIComponent(adminPin)}`)
+        .then(r => r.json())
+        .then(setEmpleados)
+        .catch(() => {})
     } else if (t === 'catalogo') {
       fetch(`/api/admin/catalogo?adminPin=${encodeURIComponent(adminPin)}`)
         .then(r => r.json())
@@ -434,6 +439,12 @@ export default function Admin() {
   const openNewEmp = () => {
     setEditingEmp(null)
     setEmpForm({ role: 'lavador' })
+    setShowEmpForm(true)
+  }
+
+  const openNewAdmin = () => {
+    setEditingEmp(null)
+    setEmpForm({ role: 'socio' })
     setShowEmpForm(true)
   }
 
@@ -858,37 +869,10 @@ export default function Admin() {
               + Nuevo Empleado
             </button>
           </div>
-          {empleados.length === 0 ? (
+          {empleados.filter(e => e.role !== 'socio').length === 0 ? (
             <p className="empty-state">Sin empleados</p>
           ) : (
             <>
-              <h3>Socios (acceso al panel administrativo)</h3>
-              {empleados.filter(e => e.role === 'socio').length === 0 ? (
-                <p className="empty-state">Sin socios registrados</p>
-              ) : (
-                <div className="list">
-                  {empleados.filter(e => e.role === 'socio').map(e => (
-                    <div key={e.id} className="list-row" onClick={() => openEditEmp(e)}>
-                      <div className="main">
-                        <div className="title">
-                          {e.nombre} {e.apellido}
-                        </div>
-                        <div className="sub">{e.tipoDocumento || ''} {e.numeroDocumento || ''} · {e.telefono || ''}</div>
-                      </div>
-                      <button
-                        className="btn-danger"
-                        onClick={ev => {
-                          ev.stopPropagation()
-                          handleDeleteEmp(e.id)
-                        }}
-                      >
-                        Eliminar
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <h3 style={{ marginTop: 24 }}>Personal operativo</h3>
               <div className="list">
                 {empleados.filter(e => e.role !== 'socio').map(e => (
                   <div key={e.id} className="list-row" onClick={() => openEditEmp(e)}>
@@ -1191,7 +1175,39 @@ export default function Admin() {
 
       {tab === 'config' && (
         <div>
-          <h2>Cambiar PIN de Administrador</h2>
+          <h2>Administradores</h2>
+          <div className="action-row">
+            <button className="btn-primary" onClick={openNewAdmin}>
+              + Nuevo Administrador
+            </button>
+          </div>
+          {empleados.filter(e => e.role === 'socio').length === 0 ? (
+            <p className="empty-state">Sin administradores registrados</p>
+          ) : (
+            <div className="list">
+              {empleados.filter(e => e.role === 'socio').map(e => (
+                <div key={e.id} className="list-row" onClick={() => openEditEmp(e)}>
+                  <div className="main">
+                    <div className="title">
+                      {e.nombre} {e.apellido}
+                    </div>
+                    <div className="sub">{e.tipoDocumento || ''} {e.numeroDocumento || ''} · {e.telefono || ''}</div>
+                  </div>
+                  <button
+                    className="btn-danger"
+                    onClick={ev => {
+                      ev.stopPropagation()
+                      handleDeleteEmp(e.id)
+                    }}
+                  >
+                    Eliminar
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <h2 style={{ marginTop: 24 }}>Cambiar PIN de Administrador</h2>
           <div className="form-group">
             <label>PIN actual</label>
             <input type="password" maxLength={4} value={oldPin} onChange={e => setOldPin(e.target.value)} />
@@ -1209,7 +1225,11 @@ export default function Admin() {
       {showEmpForm && (
         <div className="modal-overlay" onClick={() => setShowEmpForm(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <h2>{editingEmp ? 'Editar Empleado' : 'Nuevo Empleado'}</h2>
+            <h2>
+              {empForm.role === 'socio'
+                ? editingEmp ? 'Editar Administrador' : 'Nuevo Administrador'
+                : editingEmp ? 'Editar Empleado' : 'Nuevo Empleado'}
+            </h2>
             <div className="form-group">
               <label>Nombre *</label>
               <input value={empForm.nombre || ''} onChange={e => setEmpForm({ ...empForm, nombre: e.target.value })} />
@@ -1223,7 +1243,7 @@ export default function Admin() {
               <select value={empForm.role || 'lavador'} onChange={e => setEmpForm({ ...empForm, role: e.target.value })}>
                 <option value="lavador">Lavador</option>
                 <option value="recepcion">Recepción</option>
-                <option value="socio">Socio (acceso administrativo)</option>
+                <option value="socio">Administrador (socio)</option>
                 <option value="admin">Admin</option>
               </select>
             </div>
