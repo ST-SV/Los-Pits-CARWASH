@@ -237,8 +237,8 @@ export default function Socios() {
             <span>{selected.email || '-'}</span>
           </div>
           <div className="dt-row">
-            <span className="k">Contacto</span>
-            <span>{selected.contacto || '-'}</span>
+            <span className="k">Observaciones</span>
+            <span className="dt-obs">{selected.contacto || '-'}</span>
           </div>
           <div className="dt-row">
             <span className="k">Autos</span>
@@ -297,8 +297,8 @@ export default function Socios() {
                 <input value={fTelefono} onChange={e => setFTelefono(e.target.value)} />
               </div>
               <div className="form-group">
-                <label>Contacto</label>
-                <input value={fContacto} onChange={e => setFContacto(e.target.value)} />
+                <label>Observaciones</label>
+                <textarea rows={4} value={fContacto} onChange={e => setFContacto(e.target.value)} />
               </div>
               <div className="form-group">
                 <label>Autos (separados por coma)</label>
@@ -424,8 +424,8 @@ export default function Socios() {
               <input value={fTelefono} onChange={e => setFTelefono(e.target.value)} />
             </div>
             <div className="form-group">
-              <label>Contacto</label>
-              <input value={fContacto} onChange={e => setFContacto(e.target.value)} />
+              <label>Observaciones</label>
+              <textarea rows={4} value={fContacto} onChange={e => setFContacto(e.target.value)} />
             </div>
             <div className="form-group">
               <label>Autos (separados por coma)</label>

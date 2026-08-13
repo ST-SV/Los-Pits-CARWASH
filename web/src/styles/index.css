@@ -557,7 +557,8 @@ main {
 }
 
 .form-group select,
-.form-group input {
+.form-group input,
+.form-group textarea {
   width: 100%;
   background: var(--panel-2);
   border: 1px solid var(--line);
@@ -569,9 +570,15 @@ main {
 }
 
 .form-group select:focus,
-.form-group input:focus {
+.form-group input:focus,
+.form-group textarea:focus {
   outline: none;
   border-color: var(--yellow);
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 80px;
 }
 
 .payment-methods {
@@ -866,6 +873,18 @@ main {
 
 .detail-card .dt-row .k {
   color: var(--muted);
+}
+
+.detail-card .dt-row:has(.dt-obs) {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.dt-obs {
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-align: left;
 }
 
 .pin-gate {
