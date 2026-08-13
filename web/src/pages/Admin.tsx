@@ -20,6 +20,38 @@ interface Historial {
   cierres: Cierre[]
 }
 
+interface VentaItemDetalle {
+  id: string
+  nombre: string
+  precio: number
+  cantidad: number
+}
+
+interface VentaDetalle {
+  id: string
+  numeroRecibo: string
+  fecha: string
+  total: number
+  metodoPago: string
+  anulada: boolean
+  anuladaPor?: string | null
+  anuladaMotivo?: string | null
+  items: VentaItemDetalle[]
+}
+
+interface GastoDetalle {
+  id: string
+  descripcion: string
+  monto: number
+  registradoPor?: string | null
+}
+
+interface CierreDetalle {
+  cierre: Cierre & { cerradoPor: string } | null
+  ventas: VentaDetalle[]
+  gastos: GastoDetalle[]
+}
+
 interface DescuentoItem {
   id: string
   monto: number
@@ -147,6 +179,8 @@ export default function Admin() {
   const [tab, setTab] = useState<SubTab>('historial')
 
   const [historial, setHistorial] = useState<Historial | null>(null)
+  const [cierreDetalle, setCierreDetalle] = useState<CierreDetalle | null>(null)
+  const [cierreDetalleLoading, setCierreDetalleLoading] = useState(false)
   const [planilla, setPlanilla] = useState<Planilla | null>(null)
   const [mesPlanilla, setMesPlanilla] = useState(() => {
     const now = new Date()
@@ -169,6 +203,22 @@ export default function Admin() {
   const [oldPin, setOldPin] = useState('')
   const [newPin, setNewPin] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  const openCierreDetalle = async (fecha: string) => {
+    setCierreDetalleLoading(true)
+    setCierreDetalle(null)
+    try {
+      const dia = fecha.slice(0, 10)
+      const res = await fetch(`/api/admin/historial/${dia}?adminPin=${encodeURIComponent(adminPin)}`)
+      if (!res.ok) throw new Error('Error al cargar el detalle')
+      const data = await res.json()
+      setCierreDetalle(data)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Error al cargar el detalle')
+    } finally {
+      setCierreDetalleLoading(false)
+    }
+  }
 
   const handleUnlock = async () => {
     if (!pinInput) return
@@ -652,7 +702,7 @@ export default function Admin() {
               ) : (
                 <div className="list">
                   {historial.cierres.map(c => (
-                    <div key={c.id} className="list-row static">
+                    <div key={c.id} className="list-row" onClick={() => openCierreDetalle(c.fecha)} style={{ cursor: 'pointer' }}>
                       <div className="main">
                         <div className="title">{new Date(c.fecha).toLocaleDateString('es-SV')}</div>
                         <div className="sub">
@@ -1461,6 +1511,89 @@ export default function Admin() {
                 {submitting ? 'Guardando...' : 'Guardar'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {(cierreDetalleLoading || cierreDetalle) && (
+        <div className="modal-overlay" onClick={() => setCierreDetalle(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            {cierreDetalleLoading || !cierreDetalle ? (
+              <p className="empty-state">Cargando...</p>
+            ) : (
+              <>
+                <h2>
+                  {cierreDetalle.cierre ? new Date(cierreDetalle.cierre.fecha).toLocaleDateString('es-SV') : 'Detalle del día'}
+                </h2>
+                {cierreDetalle.cierre && (
+                  <div className="detail-card">
+                    <div className="dt-row">
+                      <span className="k">Cerrado por</span>
+                      <span>{cierreDetalle.cierre.cerradoPor}</span>
+                    </div>
+                    <div className="dt-row">
+                      <span className="k">Ventas</span>
+                      <span>${cierreDetalle.cierre.totalVentas.toFixed(2)}</span>
+                    </div>
+                    <div className="dt-row">
+                      <span className="k">Gastos</span>
+                      <span>${cierreDetalle.cierre.totalGastos.toFixed(2)}</span>
+                    </div>
+                    <div className="dt-row">
+                      <span className="k">Neto</span>
+                      <span>${cierreDetalle.cierre.neto.toFixed(2)}</span>
+                    </div>
+                  </div>
+                )}
+
+                <h3 className="cat-subheader">Ventas ({cierreDetalle.ventas.length})</h3>
+                {cierreDetalle.ventas.length === 0 ? (
+                  <p className="empty-state">Sin ventas</p>
+                ) : (
+                  <div className="list">
+                    {cierreDetalle.ventas.map(v => (
+                      <div key={v.id} className="list-row static">
+                        <div className="main">
+                          <div className="title">
+                            Recibo {v.numeroRecibo} {v.anulada && <span style={{ color: 'var(--red, #e33)' }}>(anulada)</span>}
+                          </div>
+                          <div className="sub">
+                            {v.items.map(it => `${it.cantidad}x ${it.nombre}`).join(', ')} · {v.metodoPago}
+                          </div>
+                          {v.anulada && v.anuladaMotivo && (
+                            <div className="sub">Motivo: {v.anuladaMotivo} · Por: {v.anuladaPor}</div>
+                          )}
+                        </div>
+                        <div className="amount">${v.total.toFixed(2)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <h3 className="cat-subheader">Gastos ({cierreDetalle.gastos.length})</h3>
+                {cierreDetalle.gastos.length === 0 ? (
+                  <p className="empty-state">Sin gastos</p>
+                ) : (
+                  <div className="list">
+                    {cierreDetalle.gastos.map(g => (
+                      <div key={g.id} className="list-row static">
+                        <div className="main">
+                          <div className="title">{g.descripcion}</div>
+                          {g.registradoPor && <div className="sub">Por: {g.registradoPor}</div>}
+                        </div>
+                        <div className="amount">${g.monto.toFixed(2)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="modal-buttons">
+                  <button className="btn-cancel" onClick={() => setCierreDetalle(null)}>
+                    Cerrar
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

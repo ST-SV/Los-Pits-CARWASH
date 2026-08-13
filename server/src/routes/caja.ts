@@ -2,6 +2,13 @@ import { Router, Request, Response } from 'express'
 import { PrismaClient } from '@prisma/client'
 import { verifyPin } from '../utils/auth.js'
 
+const isDiaCerrado = async (prisma: PrismaClient, fecha: Date) => {
+  const dia = new Date(fecha)
+  dia.setHours(0, 0, 0, 0)
+  const cierre = await prisma.cierreDeCaja.findUnique({ where: { fecha: dia } })
+  return !!cierre
+}
+
 const router = Router()
 const prisma = new PrismaClient()
 
@@ -144,6 +151,10 @@ router.delete('/gasto/:id', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid PIN' })
     }
 
+    if ((await isDiaCerrado(prisma, gasto.fecha)) && empleado.role !== 'socio') {
+      return res.status(403).json({ error: 'La caja de ese día ya fue cerrada. Solo un administrador puede eliminar este gasto.' })
+    }
+
     await prisma.gasto.delete({ where: { id } })
 
     // Log audit
@@ -198,6 +209,10 @@ router.post('/venta/:id/anular', async (req: Request, res: Response) => {
     const pinMatch = await verifyPin(anuladoPorPin, empleado.pinHash)
     if (!pinMatch) {
       return res.status(401).json({ error: 'Invalid PIN' })
+    }
+
+    if ((await isDiaCerrado(prisma, venta.fecha)) && empleado.role !== 'socio') {
+      return res.status(403).json({ error: 'La caja de ese día ya fue cerrada. Solo un administrador puede anular esta venta.' })
     }
 
     const updated = await prisma.venta.update({
@@ -292,10 +307,21 @@ router.post('/cerrar', async (req: Request, res: Response) => {
       ;(byPay as any)[v.metodoPago] = ((byPay as any)[v.metodoPago] || 0) + v.total
     })
 
-    // Create cierre
-    const cierre = await prisma.cierreDeCaja.create({
-      data: {
+    // Create o actualizar cierre (idempotente: reintentar el cierre del mismo día no falla)
+    const cierre = await prisma.cierreDeCaja.upsert({
+      where: { fecha: today },
+      create: {
         fecha: today,
+        totalVentas,
+        totalGastos,
+        neto,
+        ventasCount: ventasActivas.length,
+        byPayEffectivo: byPay.efectivo,
+        byPayTarjeta: byPay.tarjeta,
+        byPayTransferencia: byPay.transferencia,
+        cerradoPor: empleado.nombre,
+      },
+      update: {
         totalVentas,
         totalGastos,
         neto,

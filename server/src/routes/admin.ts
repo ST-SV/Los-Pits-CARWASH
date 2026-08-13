@@ -3,31 +3,12 @@ import { PrismaClient } from '@prisma/client'
 import crypto from 'crypto'
 import { hashPin, verifyPin, hashPassword } from '../utils/auth.js'
 import { computeRecibo } from '../utils/recibo.js'
+import { resolveAdminActor, requireAdminPin } from '../utils/adminAuth.js'
 
 const router = Router()
 const prisma = new PrismaClient()
 
 export const adminRouter = router
-
-// Resuelve quién está autenticando con este PIN de admin: el PIN maestro de administrador,
-// o el PIN individual de alguno de los socios (role: 'socio'). Usado para gatear el acceso
-// al panel admin y para atribuir cada acción de auditoría a la persona real.
-const resolveAdminActor = async (adminPin: string): Promise<{ nombre: string; empleadoId?: string } | null> => {
-  if (!adminPin) return null
-  const config = await prisma.appConfig.findFirst()
-  if (config && (await verifyPin(adminPin, config.adminPinHash))) {
-    return { nombre: 'Administrador' }
-  }
-  const socios = await prisma.empleado.findMany({ where: { role: 'socio', pinHash: { not: null } } })
-  for (const s of socios) {
-    if (s.pinHash && (await verifyPin(adminPin, s.pinHash))) {
-      return { nombre: s.apellido ? `${s.nombre} ${s.apellido}` : s.nombre, empleadoId: s.id }
-    }
-  }
-  return null
-}
-
-const requireAdminPin = async (adminPin: string) => !!(await resolveAdminActor(adminPin))
 
 // HISTORIAL: Agregados por semana/quincena/mes + días cerrados
 router.get('/historial', async (req: Request, res: Response) => {
@@ -96,6 +77,42 @@ router.get('/historial', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching historial:', error)
     res.status(500).json({ error: 'Failed to fetch historial' })
+  }
+})
+
+// HISTORIAL: detalle de un día cerrado (todas las ventas con items + gastos)
+router.get('/historial/:fecha', async (req: Request, res: Response) => {
+  try {
+    const { adminPin } = req.query
+    if (!adminPin || !(await requireAdminPin(adminPin as string))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+
+    const dia = new Date(req.params.fecha)
+    if (isNaN(dia.getTime())) {
+      return res.status(400).json({ error: 'Fecha inválida' })
+    }
+    dia.setHours(0, 0, 0, 0)
+    const siguiente = new Date(dia)
+    siguiente.setDate(siguiente.getDate() + 1)
+
+    const [cierre, ventas, gastos] = await Promise.all([
+      prisma.cierreDeCaja.findUnique({ where: { fecha: dia } }),
+      prisma.venta.findMany({
+        where: { fecha: { gte: dia, lt: siguiente } },
+        include: { items: true },
+        orderBy: { fecha: 'asc' },
+      }),
+      prisma.gasto.findMany({
+        where: { fecha: { gte: dia, lt: siguiente } },
+        orderBy: { fecha: 'asc' },
+      }),
+    ])
+
+    res.json({ cierre, ventas, gastos })
+  } catch (error) {
+    console.error('Error fetching detalle de historial:', error)
+    res.status(500).json({ error: 'Failed to fetch detalle' })
   }
 })
 
