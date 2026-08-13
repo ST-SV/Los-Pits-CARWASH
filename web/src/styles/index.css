@@ -498,6 +498,10 @@ main {
   color: var(--green, #4caf50);
 }
 
+.vuelto-info.faltante {
+  color: var(--red, #e33);
+}
+
 .foto-btn {
   display: inline-block;
   text-align: center;

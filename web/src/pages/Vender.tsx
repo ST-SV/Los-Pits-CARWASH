@@ -181,6 +181,8 @@ export default function Vender() {
 
   const total = cart.reduce((sum, item) => sum + item.precio * item.cantidad, 0)
   const vuelto = metodoPago === 'efectivo' && montoRecibido ? Math.max(0, parseFloat(montoRecibido) - total) : 0
+  const faltante = metodoPago === 'efectivo' && montoRecibido ? Math.max(0, total - parseFloat(montoRecibido)) : 0
+  const montoInsuficiente = metodoPago === 'efectivo' && (!montoRecibido || parseFloat(montoRecibido) < total)
 
   if (loading) {
     return <div className="loading">Cargando catálogo...</div>
@@ -409,7 +411,11 @@ export default function Vender() {
                   placeholder="0.00"
                 />
                 {montoRecibido && (
-                  <div className="vuelto-info">Vuelto: ${vuelto.toFixed(2)}</div>
+                  faltante > 0 ? (
+                    <div className="vuelto-info faltante">Falta: ${faltante.toFixed(2)}</div>
+                  ) : (
+                    <div className="vuelto-info">Vuelto: ${vuelto.toFixed(2)}</div>
+                  )
                 )}
               </div>
             )}
@@ -485,7 +491,7 @@ export default function Vender() {
               <button
                 className="btn-confirm"
                 onClick={handleCheckout}
-                disabled={pinSubmitting}
+                disabled={pinSubmitting || montoInsuficiente}
               >
                 {pinSubmitting ? 'Procesando...' : 'Registrar'}
               </button>
