@@ -803,6 +803,12 @@ main {
   flex: 1;
 }
 
+.btn-secondary.active {
+  background: var(--yellow);
+  color: #1a1300;
+  border-color: var(--yellow);
+}
+
 .btn-danger {
   background: var(--red);
   color: white;
@@ -874,6 +880,17 @@ main {
   border-radius: 10px;
   padding: 16px;
   margin-bottom: 16px;
+}
+
+.cierre-banner {
+  border-color: var(--green, #2ecc71);
+}
+
+.cierre-banner-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--green, #2ecc71);
+  margin-bottom: 10px;
 }
 
 .detail-card .dt-row {

@@ -57,6 +57,8 @@ router.get('/resumen', async (req: Request, res: Response) => {
       ;(byPay as any)[v.metodoPago] = ((byPay as any)[v.metodoPago] || 0) + v.total
     })
 
+    const cierre = await prisma.cierreDeCaja.findUnique({ where: { fecha: today } })
+
     res.json({
       ventasCount: ventasActivas.length,
       totalVentas,
@@ -65,6 +67,7 @@ router.get('/resumen', async (req: Request, res: Response) => {
       byPay,
       ventas: ventasActivas,
       gastos,
+      cierre,
     })
   } catch (error) {
     console.error('Error fetching caja resumen:', error)

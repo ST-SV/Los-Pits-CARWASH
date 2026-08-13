@@ -181,6 +181,8 @@ export default function Admin() {
   const [historial, setHistorial] = useState<Historial | null>(null)
   const [cierreDetalle, setCierreDetalle] = useState<CierreDetalle | null>(null)
   const [cierreDetalleLoading, setCierreDetalleLoading] = useState(false)
+  const [cierreFiltro, setCierreFiltro] = useState<'todos' | 'dia' | 'semana' | 'quincena' | 'mes' | 'fecha'>('todos')
+  const [cierreFechaBusqueda, setCierreFechaBusqueda] = useState('')
   const [planilla, setPlanilla] = useState<Planilla | null>(null)
   const [mesPlanilla, setMesPlanilla] = useState(() => {
     const now = new Date()
@@ -697,23 +699,66 @@ export default function Admin() {
                 </div>
               </div>
               <h2>Cierres de caja</h2>
-              {historial.cierres.length === 0 ? (
-                <p className="empty-state">Sin cierres registrados</p>
-              ) : (
-                <div className="list">
-                  {historial.cierres.map(c => (
-                    <div key={c.id} className="list-row" onClick={() => openCierreDetalle(c.fecha)} style={{ cursor: 'pointer' }}>
-                      <div className="main">
-                        <div className="title">{new Date(c.fecha).toLocaleDateString('es-SV')}</div>
-                        <div className="sub">
-                          Ventas ${c.totalVentas.toFixed(2)} · Gastos ${c.totalGastos.toFixed(2)}
+              <div className="action-row" style={{ flexWrap: 'wrap', gap: 8 }}>
+                {(['todos', 'dia', 'semana', 'quincena', 'mes'] as const).map(f => (
+                  <button
+                    key={f}
+                    className={`btn-secondary ${cierreFiltro === f ? 'active' : ''}`}
+                    onClick={() => setCierreFiltro(f)}
+                  >
+                    {f === 'todos' ? 'Todos' : f === 'dia' ? 'Hoy' : f === 'semana' ? 'Semana' : f === 'quincena' ? 'Quincena' : 'Mes'}
+                  </button>
+                ))}
+                <input
+                  type="date"
+                  value={cierreFechaBusqueda}
+                  onChange={e => {
+                    setCierreFechaBusqueda(e.target.value)
+                    setCierreFiltro('fecha')
+                  }}
+                />
+              </div>
+              {(() => {
+                const now = new Date()
+                const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+                const startOfWeek = new Date(startOfDay)
+                startOfWeek.setDate(startOfWeek.getDate() - 7)
+                const startOfFortnight = now.getDate() <= 15
+                  ? new Date(now.getFullYear(), now.getMonth(), 1)
+                  : new Date(now.getFullYear(), now.getMonth(), 16)
+                const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+
+                const cierresFiltrados = historial.cierres.filter(c => {
+                  const fecha = new Date(c.fecha)
+                  if (cierreFiltro === 'dia') return fecha >= startOfDay
+                  if (cierreFiltro === 'semana') return fecha >= startOfWeek
+                  if (cierreFiltro === 'quincena') return fecha >= startOfFortnight
+                  if (cierreFiltro === 'mes') return fecha >= startOfMonth
+                  if (cierreFiltro === 'fecha') {
+                    if (!cierreFechaBusqueda) return true
+                    return fecha.toISOString().slice(0, 10) === cierreFechaBusqueda
+                  }
+                  return true
+                })
+
+                return cierresFiltrados.length === 0 ? (
+                  <p className="empty-state">Sin cierres para ese filtro</p>
+                ) : (
+                  <div className="list">
+                    {cierresFiltrados.map(c => (
+                      <div key={c.id} className="list-row" onClick={() => openCierreDetalle(c.fecha)} style={{ cursor: 'pointer' }}>
+                        <div className="main">
+                          <div className="title">{new Date(c.fecha).toLocaleDateString('es-SV')}</div>
+                          <div className="sub">
+                            Ventas ${c.totalVentas.toFixed(2)} · Gastos ${c.totalGastos.toFixed(2)}
+                          </div>
                         </div>
+                        <div className="amount">${c.neto.toFixed(2)}</div>
                       </div>
-                      <div className="amount">${c.neto.toFixed(2)}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )
+              })()}
             </>
           )}
         </div>

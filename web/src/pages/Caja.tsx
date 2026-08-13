@@ -26,6 +26,20 @@ interface Gasto {
   fecha: string
 }
 
+interface Cierre {
+  id: string
+  fecha: string
+  totalVentas: number
+  totalGastos: number
+  neto: number
+  ventasCount: number
+  byPayEffectivo: number
+  byPayTarjeta: number
+  byPayTransferencia: number
+  cerradoPor: string
+  createdAt: string
+}
+
 interface Resumen {
   ventasCount: number
   totalVentas: number
@@ -34,6 +48,7 @@ interface Resumen {
   byPay: { efectivo: number; tarjeta: number; transferencia: number }
   ventas: Venta[]
   gastos: Gasto[]
+  cierre: Cierre | null
 }
 
 interface Empleado {
@@ -178,6 +193,44 @@ export default function Caja() {
 
   if (!resumen) {
     return <div className="empty-state">Error cargando caja</div>
+  }
+
+  if (resumen.cierre) {
+    const c = resumen.cierre
+    return (
+      <div className="caja">
+        <div className="detail-card cierre-banner">
+          <div className="cierre-banner-title">Caja cerrada</div>
+          <div className="dt-row">
+            <span className="k">Fecha</span>
+            <span>{new Date(c.fecha).toLocaleDateString('es-SV', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+          </div>
+          <div className="dt-row">
+            <span className="k">Cerrada por</span>
+            <span>{c.cerradoPor}</span>
+          </div>
+          <div className="dt-row">
+            <span className="k">Hora de cierre</span>
+            <span>{new Date(c.createdAt).toLocaleTimeString('es-SV', { hour: '2-digit', minute: '2-digit' })}</span>
+          </div>
+          <div className="dt-row">
+            <span className="k">Ventas</span>
+            <span>{c.ventasCount} · ${c.totalVentas.toFixed(2)}</span>
+          </div>
+          <div className="dt-row">
+            <span className="k">Gastos</span>
+            <span>${c.totalGastos.toFixed(2)}</span>
+          </div>
+          <div className="dt-row">
+            <span className="k">Neto</span>
+            <span className="value green">${c.neto.toFixed(2)}</span>
+          </div>
+        </div>
+        <p className="empty-state">
+          El detalle completo de ventas y gastos de este día queda disponible en Administración → Historial.
+        </p>
+      </div>
+    )
   }
 
   return (
