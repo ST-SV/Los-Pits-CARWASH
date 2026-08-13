@@ -46,6 +46,10 @@ export default function Vender() {
   const [referencia, setReferencia] = useState('')
   const [comprobanteFoto, setComprobanteFoto] = useState<string | null>(null)
   const [montoRecibido, setMontoRecibido] = useState('')
+  const [descuentoAplicado, setDescuentoAplicado] = useState(false)
+  const [descuentoTipo, setDescuentoTipo] = useState<'porcentaje' | 'monto'>('porcentaje')
+  const [descuentoValor, setDescuentoValor] = useState('')
+  const [descuentoMotivo, setDescuentoMotivo] = useState('')
   const [banco, setBanco] = useState('')
   const [numeroCupon, setNumeroCupon] = useState('')
 
@@ -117,6 +121,21 @@ export default function Vender() {
       toast('Ingresa PIN', 'error')
       return
     }
+    if (descuentoAplicado) {
+      const valor = parseFloat(descuentoValor)
+      if (!descuentoValor || isNaN(valor) || valor <= 0) {
+        toast('Ingresa un descuento válido', 'error')
+        return
+      }
+      if (descuentoTipo === 'porcentaje' && valor > 100) {
+        toast('El descuento no puede superar el 100%', 'error')
+        return
+      }
+      if (!descuentoMotivo.trim()) {
+        toast('Ingresa el motivo del descuento', 'error')
+        return
+      }
+    }
     if (metodoPago === 'efectivo' && (!montoRecibido || parseFloat(montoRecibido) < total)) {
       toast('Ingresa con cuánto paga el cliente (debe cubrir el total)', 'error')
       return
@@ -152,6 +171,8 @@ export default function Vender() {
           banco: metodoPago === 'tarjeta' ? banco.trim() : undefined,
           numeroCupon: metodoPago === 'tarjeta' ? numeroCupon.trim() : undefined,
           comprobanteFoto: metodoPago === 'transferencia' ? comprobanteFoto : undefined,
+          descuentoMonto: descuentoAplicado ? descuentoMonto : undefined,
+          descuentoMotivo: descuentoAplicado ? descuentoMotivo.trim() : undefined,
         }),
       })
 
@@ -172,6 +193,10 @@ export default function Vender() {
       setMontoRecibido('')
       setBanco('')
       setNumeroCupon('')
+      setDescuentoAplicado(false)
+      setDescuentoTipo('porcentaje')
+      setDescuentoValor('')
+      setDescuentoMotivo('')
     } catch (error: any) {
       toast(error.message, 'error')
     } finally {
@@ -179,7 +204,15 @@ export default function Vender() {
     }
   }
 
-  const total = cart.reduce((sum, item) => sum + item.precio * item.cantidad, 0)
+  const subtotal = cart.reduce((sum, item) => sum + item.precio * item.cantidad, 0)
+  const descuentoValorNum = parseFloat(descuentoValor) || 0
+  const descuentoMontoRaw = !descuentoAplicado
+    ? 0
+    : descuentoTipo === 'porcentaje'
+      ? subtotal * (descuentoValorNum / 100)
+      : descuentoValorNum
+  const descuentoMonto = Math.min(Math.max(0, descuentoMontoRaw), subtotal)
+  const total = Math.max(0, subtotal - descuentoMonto)
   const vuelto = metodoPago === 'efectivo' && montoRecibido ? Math.max(0, parseFloat(montoRecibido) - total) : 0
   const faltante = metodoPago === 'efectivo' && montoRecibido ? Math.max(0, total - parseFloat(montoRecibido)) : 0
   const montoInsuficiente = metodoPago === 'efectivo' && (!montoRecibido || parseFloat(montoRecibido) < total)
@@ -298,7 +331,7 @@ export default function Vender() {
                 </div>
                 <div className="cart-total">
                   <span>TOTAL</span>
-                  <span className="total-amount">${total.toFixed(2)}</span>
+                  <span className="total-amount">${subtotal.toFixed(2)}</span>
                 </div>
                 <button
                   className="checkout-btn"
@@ -320,7 +353,7 @@ export default function Vender() {
           <span className="cart-bar-count">
             {cart.length === 0 ? 'Carrito vacío' : `${cart.reduce((s, i) => s + i.cantidad, 0)} artículo(s)`}
           </span>
-          <span className="cart-bar-total">${total.toFixed(2)}</span>
+          <span className="cart-bar-total">${subtotal.toFixed(2)}</span>
           <span className={`cart-bar-chevron ${cartExpanded ? 'up' : ''}`}>▲</span>
         </button>
         <button
@@ -345,6 +378,67 @@ export default function Vender() {
                 </div>
               ))}
             </div>
+
+            <div className="form-group">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={descuentoAplicado}
+                  onChange={e => setDescuentoAplicado(e.target.checked)}
+                />
+                Aplicar descuento
+              </label>
+            </div>
+
+            {descuentoAplicado && (
+              <>
+                <div className="form-group">
+                  <label>Tipo de descuento *</label>
+                  <div className="payment-methods">
+                    <label className="radio-option">
+                      <input
+                        type="radio"
+                        name="descuentoTipo"
+                        checked={descuentoTipo === 'porcentaje'}
+                        onChange={() => setDescuentoTipo('porcentaje')}
+                      />
+                      <span>Porcentaje (%)</span>
+                    </label>
+                    <label className="radio-option">
+                      <input
+                        type="radio"
+                        name="descuentoTipo"
+                        checked={descuentoTipo === 'monto'}
+                        onChange={() => setDescuentoTipo('monto')}
+                      />
+                      <span>Monto ($)</span>
+                    </label>
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label>{descuentoTipo === 'porcentaje' ? 'Porcentaje de descuento *' : 'Monto de descuento *'}</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={descuentoValor}
+                    onChange={e => setDescuentoValor(e.target.value)}
+                    placeholder={descuentoTipo === 'porcentaje' ? 'Ej: 10' : 'Ej: 5.00'}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Motivo del descuento *</label>
+                  <input
+                    value={descuentoMotivo}
+                    onChange={e => setDescuentoMotivo(e.target.value)}
+                    placeholder="Ej: Cliente frecuente"
+                  />
+                </div>
+                <div className="descuento-info">
+                  Descuento: -${descuentoMonto.toFixed(2)} · Subtotal: ${subtotal.toFixed(2)}
+                </div>
+              </>
+            )}
 
             <div className="form-group">
               <label>Número de recibo (papel) *</label>

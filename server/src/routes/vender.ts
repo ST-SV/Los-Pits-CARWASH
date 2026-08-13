@@ -36,10 +36,21 @@ router.post('/venta', async (req: Request, res: Response) => {
       banco,
       numeroCupon,
       comprobanteFoto,
+      descuentoMonto,
+      descuentoMotivo,
     } = req.body
 
     if (!items || !metodoPago || !empleadoId || !pin || !numeroRecibo) {
       return res.status(400).json({ error: 'Missing required fields' })
+    }
+
+    if (descuentoMonto !== undefined && descuentoMonto !== null) {
+      if (typeof descuentoMonto !== 'number' || descuentoMonto < 0) {
+        return res.status(400).json({ error: 'Descuento inválido' })
+      }
+      if (!descuentoMotivo || !String(descuentoMotivo).trim()) {
+        return res.status(400).json({ error: 'Falta el motivo del descuento' })
+      }
     }
 
     if (metodoPago === 'efectivo' && (montoRecibido === undefined || montoRecibido === null)) {
@@ -113,13 +124,18 @@ router.post('/venta', async (req: Request, res: Response) => {
       }
     }
 
-    const vuelto = metodoPago === 'efectivo' ? Math.max(0, montoRecibido - total) : null
+    const descuentoAplicado = Math.min(Math.max(0, descuentoMonto || 0), total)
+    const totalFinal = total - descuentoAplicado
+
+    const vuelto = metodoPago === 'efectivo' ? Math.max(0, montoRecibido - totalFinal) : null
 
     // Create venta
     const venta = await prisma.venta.create({
       data: {
         numeroRecibo,
-        total,
+        total: totalFinal,
+        descuentoMonto: descuentoAplicado,
+        descuentoMotivo: descuentoAplicado > 0 ? String(descuentoMotivo).trim() : null,
         metodoPago,
         referencia: metodoPago === 'transferencia' ? referencia : null,
         montoRecibido: metodoPago === 'efectivo' ? montoRecibido : null,

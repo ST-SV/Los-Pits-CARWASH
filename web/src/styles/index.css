@@ -502,6 +502,19 @@ main {
   color: var(--red, #e33);
 }
 
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.descuento-info {
+  margin: -8px 0 12px;
+  font-weight: 600;
+  color: var(--yellow, #e0a800);
+}
+
 .foto-btn {
   display: inline-block;
   text-align: center;

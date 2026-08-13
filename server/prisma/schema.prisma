@@ -154,6 +154,8 @@ model Venta {
   fecha               DateTime  @default(now())
   items               VentaItem[]
   total               Float
+  descuentoMonto      Float     @default(0)
+  descuentoMotivo     String?
   metodoPago          String    // "efectivo" | "tarjeta" | "transferencia"
   numeroRecibo        String
   referencia          String?   // numero de transferencia
