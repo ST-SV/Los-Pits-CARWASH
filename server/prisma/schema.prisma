@@ -257,7 +257,6 @@ model CierreDeCaja {
   cerradoPor      String  // name of who closed
   createdAt       DateTime @default(now())
 
-  @@unique([fecha])
   @@index([fecha])
 }
 

@@ -4,6 +4,7 @@ import crypto from 'crypto'
 import { hashPin, verifyPin, hashPassword } from '../utils/auth.js'
 import { computeRecibo } from '../utils/recibo.js'
 import { resolveAdminActor, requireAdminPin } from '../utils/adminAuth.js'
+import { getVentanaAbierta } from './caja.js'
 
 const router = Router()
 const prisma = new PrismaClient()
@@ -26,22 +27,20 @@ router.get('/historial', async (req: Request, res: Response) => {
     const monthAgo = new Date(now)
     monthAgo.setDate(now.getDate() - 30)
 
-    // Today's ventas
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const tomorrow = new Date(today)
-    tomorrow.setDate(tomorrow.getDate() + 1)
+    // Ventana abierta de hoy: solo lo que todavía no pasó por ningún cierre,
+    // para no contar dos veces lo que ya quedó archivado en un CierreDeCaja de hoy.
+    const { desde, hasta } = await getVentanaAbierta(prisma)
 
     const [ventasHoy, gastosHoy, historial] = await Promise.all([
       prisma.venta.findMany({
-        where: { fecha: { gte: today, lt: tomorrow }, anulada: false },
+        where: { fecha: { gte: desde, lt: hasta }, anulada: false },
       }),
       prisma.gasto.findMany({
-        where: { fecha: { gte: today, lt: tomorrow } },
+        where: { fecha: { gte: desde, lt: hasta } },
       }),
       prisma.cierreDeCaja.findMany({
         orderBy: { fecha: 'desc' },
-        take: 100,
+        take: 200,
       }),
     ])
 
@@ -80,39 +79,130 @@ router.get('/historial', async (req: Request, res: Response) => {
   }
 })
 
-// HISTORIAL: detalle de un día cerrado (todas las ventas con items + gastos)
-router.get('/historial/:fecha', async (req: Request, res: Response) => {
+// HISTORIAL: detalle de un cierre puntual (ventana entre el cierre anterior y este)
+router.get('/cierre/:id', async (req: Request, res: Response) => {
   try {
     const { adminPin } = req.query
     if (!adminPin || !(await requireAdminPin(adminPin as string))) {
       return res.status(401).json({ error: 'Invalid admin PIN' })
     }
 
-    const dia = new Date(req.params.fecha)
-    if (isNaN(dia.getTime())) {
-      return res.status(400).json({ error: 'Fecha inválida' })
+    const cierre = await prisma.cierreDeCaja.findUnique({ where: { id: req.params.id } })
+    if (!cierre) {
+      return res.status(404).json({ error: 'Cierre no encontrado' })
     }
-    dia.setHours(0, 0, 0, 0)
-    const siguiente = new Date(dia)
-    siguiente.setDate(siguiente.getDate() + 1)
 
-    const [cierre, ventas, gastos] = await Promise.all([
-      prisma.cierreDeCaja.findUnique({ where: { fecha: dia } }),
+    const dia = new Date(cierre.fecha)
+    dia.setHours(0, 0, 0, 0)
+
+    const anterior = await prisma.cierreDeCaja.findFirst({
+      where: { fecha: dia, createdAt: { lt: cierre.createdAt } },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    const desde = anterior ? anterior.createdAt : dia
+    const hasta = cierre.createdAt
+
+    const [ventas, gastos] = await Promise.all([
       prisma.venta.findMany({
-        where: { fecha: { gte: dia, lt: siguiente } },
+        where: { fecha: { gte: desde, lt: hasta } },
         include: { items: true },
         orderBy: { fecha: 'asc' },
       }),
       prisma.gasto.findMany({
-        where: { fecha: { gte: dia, lt: siguiente } },
+        where: { fecha: { gte: desde, lt: hasta } },
         orderBy: { fecha: 'asc' },
       }),
     ])
 
     res.json({ cierre, ventas, gastos })
   } catch (error) {
-    console.error('Error fetching detalle de historial:', error)
+    console.error('Error fetching detalle de cierre:', error)
     res.status(500).json({ error: 'Failed to fetch detalle' })
+  }
+})
+
+// HISTORIAL: modificar un cierre (solo admin, requiere motivo)
+router.put('/cierre/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { adminPin, totalVentas, totalGastos, cerradoPor, motivo } = req.body
+
+    if (!adminPin || !(await requireAdminPin(adminPin))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+    if (!motivo) {
+      return res.status(400).json({ error: 'Motivo is required' })
+    }
+
+    const cierre = await prisma.cierreDeCaja.findUnique({ where: { id } })
+    if (!cierre) {
+      return res.status(404).json({ error: 'Cierre no encontrado' })
+    }
+
+    const nuevoTotalVentas = totalVentas !== undefined && totalVentas !== null ? parseFloat(totalVentas) : cierre.totalVentas
+    const nuevoTotalGastos = totalGastos !== undefined && totalGastos !== null ? parseFloat(totalGastos) : cierre.totalGastos
+    const nuevoNeto = nuevoTotalVentas - nuevoTotalGastos
+
+    const updated = await prisma.cierreDeCaja.update({
+      where: { id },
+      data: {
+        totalVentas: nuevoTotalVentas,
+        totalGastos: nuevoTotalGastos,
+        neto: nuevoNeto,
+        cerradoPor: cerradoPor || cierre.cerradoPor,
+      },
+    })
+
+    await prisma.auditLog.create({
+      data: {
+        actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(adminPin))?.empleadoId,
+        accion: 'Cierre de caja modificado',
+        detalle: `${new Date(cierre.fecha).toLocaleDateString('es-SV')} · $${cierre.totalVentas.toFixed(2)}→$${nuevoTotalVentas.toFixed(2)} ventas · $${cierre.totalGastos.toFixed(2)}→$${nuevoTotalGastos.toFixed(2)} gastos · Motivo: ${motivo}`,
+      },
+    })
+
+    res.json(updated)
+  } catch (error) {
+    console.error('Error updating cierre:', error)
+    res.status(500).json({ error: 'Failed to update cierre' })
+  }
+})
+
+// HISTORIAL: eliminar/anular un cierre (solo admin, requiere motivo)
+router.delete('/cierre/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { adminPin, motivo } = req.body
+
+    if (!adminPin || !(await requireAdminPin(adminPin))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+    if (!motivo) {
+      return res.status(400).json({ error: 'Motivo is required' })
+    }
+
+    const cierre = await prisma.cierreDeCaja.findUnique({ where: { id } })
+    if (!cierre) {
+      return res.status(404).json({ error: 'Cierre no encontrado' })
+    }
+
+    await prisma.cierreDeCaja.delete({ where: { id } })
+
+    await prisma.auditLog.create({
+      data: {
+        actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(adminPin))?.empleadoId,
+        accion: 'Cierre de caja eliminado',
+        detalle: `${new Date(cierre.fecha).toLocaleDateString('es-SV')} · $${cierre.totalVentas.toFixed(2)} ventas · $${cierre.totalGastos.toFixed(2)} gastos · Motivo: ${motivo}`,
+      },
+    })
+
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Error deleting cierre:', error)
+    res.status(500).json({ error: 'Failed to delete cierre' })
   }
 })
 

@@ -893,6 +893,34 @@ main {
   margin-bottom: 10px;
 }
 
+.cierre-banner-compact {
+  border: 1px solid var(--green, #2ecc71);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-top: 20px;
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.cierre-banner-compact-title {
+  font-weight: 700;
+  color: var(--green, #2ecc71);
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.cierre-banner-compact-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cierre-banner-compact-row:first-of-type {
+  border-top: none;
+}
+
 .detail-card .dt-row {
   display: flex;
   justify-content: space-between;

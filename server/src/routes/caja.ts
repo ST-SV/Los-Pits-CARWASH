@@ -2,11 +2,38 @@ import { Router, Request, Response } from 'express'
 import { PrismaClient } from '@prisma/client'
 import { verifyPin } from '../utils/auth.js'
 
-const isDiaCerrado = async (prisma: PrismaClient, fecha: Date) => {
+// Un registro (venta/gasto) queda "cerrado" si ya fue barrido por el último
+// cierre de caja de ese día (createdAt del cierre posterior a la fecha del registro).
+const isRegistroCerrado = async (prisma: PrismaClient, fecha: Date) => {
   const dia = new Date(fecha)
   dia.setHours(0, 0, 0, 0)
-  const cierre = await prisma.cierreDeCaja.findUnique({ where: { fecha: dia } })
-  return !!cierre
+  const siguiente = new Date(dia)
+  siguiente.setDate(siguiente.getDate() + 1)
+
+  const ultimoCierre = await prisma.cierreDeCaja.findFirst({
+    where: { fecha: { gte: dia, lt: siguiente } },
+    orderBy: { createdAt: 'desc' },
+  })
+
+  if (!ultimoCierre) return false
+  return fecha <= ultimoCierre.createdAt
+}
+
+// Ventana actualmente "abierta": desde el último cierre de hoy (o el inicio del día
+// si todavía no se cerró nada) hasta ahora.
+export const getVentanaAbierta = async (prisma: PrismaClient) => {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const tomorrow = new Date(today)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+
+  const ultimoCierre = await prisma.cierreDeCaja.findFirst({
+    where: { fecha: { gte: today, lt: tomorrow } },
+    orderBy: { createdAt: 'desc' },
+  })
+
+  const desde = ultimoCierre ? ultimoCierre.createdAt : today
+  return { desde, hasta: new Date(), today, tomorrow }
 }
 
 const router = Router()
@@ -17,17 +44,14 @@ export const cajaRouter = router
 // GET resumen del día actual
 router.get('/resumen', async (req: Request, res: Response) => {
   try {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const tomorrow = new Date(today)
-    tomorrow.setDate(tomorrow.getDate() + 1)
+    const { desde, hasta, today, tomorrow } = await getVentanaAbierta(prisma)
 
-    const [ventasActivas, gastos] = await Promise.all([
+    const [ventasActivas, gastos, cierresHoy] = await Promise.all([
       prisma.venta.findMany({
         where: {
           fecha: {
-            gte: today,
-            lt: tomorrow,
+            gte: desde,
+            lt: hasta,
           },
           anulada: false,
         },
@@ -36,10 +60,14 @@ router.get('/resumen', async (req: Request, res: Response) => {
       prisma.gasto.findMany({
         where: {
           fecha: {
-            gte: today,
-            lt: tomorrow,
+            gte: desde,
+            lt: hasta,
           },
         },
+      }),
+      prisma.cierreDeCaja.findMany({
+        where: { fecha: { gte: today, lt: tomorrow } },
+        orderBy: { createdAt: 'asc' },
       }),
     ])
 
@@ -57,8 +85,6 @@ router.get('/resumen', async (req: Request, res: Response) => {
       ;(byPay as any)[v.metodoPago] = ((byPay as any)[v.metodoPago] || 0) + v.total
     })
 
-    const cierre = await prisma.cierreDeCaja.findUnique({ where: { fecha: today } })
-
     res.json({
       ventasCount: ventasActivas.length,
       totalVentas,
@@ -67,7 +93,7 @@ router.get('/resumen', async (req: Request, res: Response) => {
       byPay,
       ventas: ventasActivas,
       gastos,
-      cierre,
+      cierresHoy,
     })
   } catch (error) {
     console.error('Error fetching caja resumen:', error)
@@ -154,7 +180,7 @@ router.delete('/gasto/:id', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid PIN' })
     }
 
-    if ((await isDiaCerrado(prisma, gasto.fecha)) && empleado.role !== 'socio') {
+    if ((await isRegistroCerrado(prisma, gasto.fecha)) && empleado.role !== 'socio') {
       return res.status(403).json({ error: 'La caja de ese día ya fue cerrada. Solo un administrador puede eliminar este gasto.' })
     }
 
@@ -214,7 +240,7 @@ router.post('/venta/:id/anular', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid PIN' })
     }
 
-    if ((await isDiaCerrado(prisma, venta.fecha)) && empleado.role !== 'socio') {
+    if ((await isRegistroCerrado(prisma, venta.fecha)) && empleado.role !== 'socio') {
       return res.status(403).json({ error: 'La caja de ese día ya fue cerrada. Solo un administrador puede anular esta venta.' })
     }
 
@@ -270,18 +296,15 @@ router.post('/cerrar', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid PIN' })
     }
 
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const tomorrow = new Date(today)
-    tomorrow.setDate(tomorrow.getDate() + 1)
+    const { desde, hasta, today } = await getVentanaAbierta(prisma)
 
-    // Get today's ventas and gastos
+    // Ventas y gastos de la ventana abierta (desde el último cierre de hoy, o desde el inicio del día)
     const [ventasActivas, gastos] = await Promise.all([
       prisma.venta.findMany({
         where: {
           fecha: {
-            gte: today,
-            lt: tomorrow,
+            gte: desde,
+            lt: hasta,
           },
           anulada: false,
         },
@@ -289,8 +312,8 @@ router.post('/cerrar', async (req: Request, res: Response) => {
       prisma.gasto.findMany({
         where: {
           fecha: {
-            gte: today,
-            lt: tomorrow,
+            gte: desde,
+            lt: hasta,
           },
         },
       }),
@@ -310,21 +333,11 @@ router.post('/cerrar', async (req: Request, res: Response) => {
       ;(byPay as any)[v.metodoPago] = ((byPay as any)[v.metodoPago] || 0) + v.total
     })
 
-    // Create o actualizar cierre (idempotente: reintentar el cierre del mismo día no falla)
-    const cierre = await prisma.cierreDeCaja.upsert({
-      where: { fecha: today },
-      create: {
+    // Cada cierre es un corte independiente de la ventana abierta actual;
+    // se puede cerrar caja varias veces por día (cada corte arranca donde terminó el anterior).
+    const cierre = await prisma.cierreDeCaja.create({
+      data: {
         fecha: today,
-        totalVentas,
-        totalGastos,
-        neto,
-        ventasCount: ventasActivas.length,
-        byPayEffectivo: byPay.efectivo,
-        byPayTarjeta: byPay.tarjeta,
-        byPayTransferencia: byPay.transferencia,
-        cerradoPor: empleado.nombre,
-      },
-      update: {
         totalVentas,
         totalGastos,
         neto,

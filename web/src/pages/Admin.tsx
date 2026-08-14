@@ -8,6 +8,7 @@ const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', '
 interface Cierre {
   id: string
   fecha: string
+  createdAt: string
   totalVentas: number
   totalGastos: number
   neto: number
@@ -206,12 +207,12 @@ export default function Admin() {
   const [newPin, setNewPin] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
-  const openCierreDetalle = async (fecha: string) => {
+  const openCierreDetalle = async (id: string) => {
     setCierreDetalleLoading(true)
     setCierreDetalle(null)
+    setEditCierre(null)
     try {
-      const dia = fecha.slice(0, 10)
-      const res = await fetch(`/api/admin/historial/${dia}?adminPin=${encodeURIComponent(adminPin)}`)
+      const res = await fetch(`/api/admin/cierre/${id}?adminPin=${encodeURIComponent(adminPin)}`)
       if (!res.ok) throw new Error('Error al cargar el detalle')
       const data = await res.json()
       setCierreDetalle(data)
@@ -219,6 +220,67 @@ export default function Admin() {
       alert(e instanceof Error ? e.message : 'Error al cargar el detalle')
     } finally {
       setCierreDetalleLoading(false)
+    }
+  }
+
+  const [editCierre, setEditCierre] = useState<{ totalVentas: string; totalGastos: string; cerradoPor: string; motivo: string } | null>(null)
+
+  const handleEditCierre = async () => {
+    if (!cierreDetalle?.cierre || !editCierre) return
+    if (!editCierre.motivo) {
+      toast('Ingresa el motivo', 'error')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/admin/cierre/${cierreDetalle.cierre.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminPin,
+          totalVentas: parseFloat(editCierre.totalVentas),
+          totalGastos: parseFloat(editCierre.totalGastos),
+          cerradoPor: editCierre.cerradoPor,
+          motivo: editCierre.motivo,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Error al modificar el cierre')
+      }
+      toast('Cierre modificado', 'success')
+      setEditCierre(null)
+      setCierreDetalle(null)
+      loadTab('historial')
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleDeleteCierre = async () => {
+    if (!cierreDetalle?.cierre) return
+    const motivo = window.prompt('Motivo para eliminar este cierre:')
+    if (!motivo) return
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/admin/cierre/${cierreDetalle.cierre.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPin, motivo }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Error al eliminar el cierre')
+      }
+      toast('Cierre eliminado', 'success')
+      setCierreDetalle(null)
+      loadTab('historial')
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -746,9 +808,11 @@ export default function Admin() {
                 ) : (
                   <div className="list">
                     {cierresFiltrados.map(c => (
-                      <div key={c.id} className="list-row" onClick={() => openCierreDetalle(c.fecha)} style={{ cursor: 'pointer' }}>
+                      <div key={c.id} className="list-row" onClick={() => openCierreDetalle(c.id)} style={{ cursor: 'pointer' }}>
                         <div className="main">
-                          <div className="title">{new Date(c.fecha).toLocaleDateString('es-SV')}</div>
+                          <div className="title">
+                            {new Date(c.fecha).toLocaleDateString('es-SV')} · {new Date(c.createdAt).toLocaleTimeString('es-SV', { hour: '2-digit', minute: '2-digit' })}
+                          </div>
                           <div className="sub">
                             Ventas ${c.totalVentas.toFixed(2)} · Gastos ${c.totalGastos.toFixed(2)}
                           </div>
@@ -1561,16 +1625,18 @@ export default function Admin() {
       )}
 
       {(cierreDetalleLoading || cierreDetalle) && (
-        <div className="modal-overlay" onClick={() => setCierreDetalle(null)}>
+        <div className="modal-overlay" onClick={() => { setCierreDetalle(null); setEditCierre(null) }}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             {cierreDetalleLoading || !cierreDetalle ? (
               <p className="empty-state">Cargando...</p>
             ) : (
               <>
                 <h2>
-                  {cierreDetalle.cierre ? new Date(cierreDetalle.cierre.fecha).toLocaleDateString('es-SV') : 'Detalle del día'}
+                  {cierreDetalle.cierre
+                    ? `${new Date(cierreDetalle.cierre.fecha).toLocaleDateString('es-SV')} · ${new Date(cierreDetalle.cierre.createdAt).toLocaleTimeString('es-SV', { hour: '2-digit', minute: '2-digit' })}`
+                    : 'Detalle del cierre'}
                 </h2>
-                {cierreDetalle.cierre && (
+                {cierreDetalle.cierre && !editCierre && (
                   <div className="detail-card">
                     <div className="dt-row">
                       <span className="k">Cerrado por</span>
@@ -1587,6 +1653,70 @@ export default function Admin() {
                     <div className="dt-row">
                       <span className="k">Neto</span>
                       <span>${cierreDetalle.cierre.neto.toFixed(2)}</span>
+                    </div>
+                    <div className="action-row" style={{ marginTop: 10 }}>
+                      <button
+                        className="btn-secondary"
+                        onClick={() =>
+                          setEditCierre({
+                            totalVentas: String(cierreDetalle.cierre!.totalVentas),
+                            totalGastos: String(cierreDetalle.cierre!.totalGastos),
+                            cerradoPor: cierreDetalle.cierre!.cerradoPor,
+                            motivo: '',
+                          })
+                        }
+                      >
+                        Modificar
+                      </button>
+                      <button className="btn-danger" onClick={handleDeleteCierre} disabled={submitting}>
+                        Eliminar cierre
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {cierreDetalle.cierre && editCierre && (
+                  <div className="detail-card">
+                    <div className="form-group">
+                      <label>Total ventas</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={editCierre.totalVentas}
+                        onChange={e => setEditCierre({ ...editCierre, totalVentas: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Total gastos</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={editCierre.totalGastos}
+                        onChange={e => setEditCierre({ ...editCierre, totalGastos: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Cerrado por</label>
+                      <input
+                        value={editCierre.cerradoPor}
+                        onChange={e => setEditCierre({ ...editCierre, cerradoPor: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Motivo *</label>
+                      <input
+                        value={editCierre.motivo}
+                        onChange={e => setEditCierre({ ...editCierre, motivo: e.target.value })}
+                        placeholder="Motivo de la modificación"
+                      />
+                    </div>
+                    <div className="modal-buttons">
+                      <button className="btn-cancel" onClick={() => setEditCierre(null)}>
+                        Cancelar
+                      </button>
+                      <button className="btn-confirm" onClick={handleEditCierre} disabled={submitting}>
+                        {submitting ? 'Guardando...' : 'Guardar'}
+                      </button>
                     </div>
                   </div>
                 )}
@@ -1633,7 +1763,7 @@ export default function Admin() {
                 )}
 
                 <div className="modal-buttons">
-                  <button className="btn-cancel" onClick={() => setCierreDetalle(null)}>
+                  <button className="btn-cancel" onClick={() => { setCierreDetalle(null); setEditCierre(null) }}>
                     Cerrar
                   </button>
                 </div>
