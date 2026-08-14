@@ -211,6 +211,7 @@ export default function Admin() {
     setCierreDetalleLoading(true)
     setCierreDetalle(null)
     setEditCierre(null)
+    setDeleteCierreMotivo(null)
     try {
       const res = await fetch(`/api/admin/cierre/${id}?adminPin=${encodeURIComponent(adminPin)}`)
       if (!res.ok) throw new Error('Error al cargar el detalle')
@@ -224,6 +225,7 @@ export default function Admin() {
   }
 
   const [editCierre, setEditCierre] = useState<{ totalVentas: string; totalGastos: string; cerradoPor: string; motivo: string } | null>(null)
+  const [deleteCierreMotivo, setDeleteCierreMotivo] = useState<string | null>(null)
 
   const handleEditCierre = async () => {
     if (!cierreDetalle?.cierre || !editCierre) return
@@ -260,15 +262,13 @@ export default function Admin() {
   }
 
   const handleDeleteCierre = async () => {
-    if (!cierreDetalle?.cierre) return
-    const motivo = window.prompt('Motivo para eliminar este cierre:')
-    if (!motivo) return
+    if (!cierreDetalle?.cierre || !deleteCierreMotivo) return
     setSubmitting(true)
     try {
       const res = await fetch(`/api/admin/cierre/${cierreDetalle.cierre.id}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminPin, motivo }),
+        body: JSON.stringify({ adminPin, motivo: deleteCierreMotivo }),
       })
       if (!res.ok) {
         const err = await res.json()
@@ -276,6 +276,7 @@ export default function Admin() {
       }
       toast('Cierre eliminado', 'success')
       setCierreDetalle(null)
+      setDeleteCierreMotivo(null)
       loadTab('historial')
     } catch (e: any) {
       toast(e.message, 'error')
@@ -1625,7 +1626,7 @@ export default function Admin() {
       )}
 
       {(cierreDetalleLoading || cierreDetalle) && (
-        <div className="modal-overlay" onClick={() => { setCierreDetalle(null); setEditCierre(null) }}>
+        <div className="modal-overlay" onClick={() => { setCierreDetalle(null); setEditCierre(null); setDeleteCierreMotivo(null) }}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             {cierreDetalleLoading || !cierreDetalle ? (
               <p className="empty-state">Cargando...</p>
@@ -1636,7 +1637,7 @@ export default function Admin() {
                     ? `${new Date(cierreDetalle.cierre.fecha).toLocaleDateString('es-SV')} · ${new Date(cierreDetalle.cierre.createdAt).toLocaleTimeString('es-SV', { hour: '2-digit', minute: '2-digit' })}`
                     : 'Detalle del cierre'}
                 </h2>
-                {cierreDetalle.cierre && !editCierre && (
+                {cierreDetalle.cierre && !editCierre && deleteCierreMotivo === null && (
                   <div className="detail-card">
                     <div className="dt-row">
                       <span className="k">Cerrado por</span>
@@ -1668,8 +1669,34 @@ export default function Admin() {
                       >
                         Modificar
                       </button>
-                      <button className="btn-danger" onClick={handleDeleteCierre} disabled={submitting}>
+                      <button className="btn-danger" onClick={() => setDeleteCierreMotivo('')} disabled={submitting}>
                         Eliminar cierre
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {cierreDetalle.cierre && deleteCierreMotivo !== null && (
+                  <div className="detail-card">
+                    <div className="form-group">
+                      <label>Motivo para eliminar este cierre *</label>
+                      <input
+                        value={deleteCierreMotivo}
+                        onChange={e => setDeleteCierreMotivo(e.target.value)}
+                        placeholder="Motivo de la eliminación"
+                        autoFocus
+                      />
+                    </div>
+                    <div className="modal-buttons">
+                      <button className="btn-cancel" onClick={() => setDeleteCierreMotivo(null)}>
+                        Cancelar
+                      </button>
+                      <button
+                        className="btn-danger"
+                        onClick={handleDeleteCierre}
+                        disabled={submitting || !deleteCierreMotivo}
+                      >
+                        {submitting ? 'Eliminando...' : 'Eliminar cierre'}
                       </button>
                     </div>
                   </div>
@@ -1763,7 +1790,7 @@ export default function Admin() {
                 )}
 
                 <div className="modal-buttons">
-                  <button className="btn-cancel" onClick={() => { setCierreDetalle(null); setEditCierre(null) }}>
+                  <button className="btn-cancel" onClick={() => { setCierreDetalle(null); setEditCierre(null); setDeleteCierreMotivo(null) }}>
                     Cerrar
                   </button>
                 </div>
