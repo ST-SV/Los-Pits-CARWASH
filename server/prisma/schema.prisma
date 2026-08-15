@@ -38,6 +38,7 @@ model Empleado {
   sueldoMensual       Float     @default(0)
   comisionPercent     Float     @default(5)
   comisionThreshold   Float     @default(12)
+  metaAutosMensual    Int?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 

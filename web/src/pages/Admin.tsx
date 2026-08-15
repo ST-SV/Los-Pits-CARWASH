@@ -107,6 +107,41 @@ interface Planilla {
   }
 }
 
+interface PeriodoDetalle {
+  label: string
+  ingresos: number
+  gastosOperativos: number
+  nomina: number
+  neto: number
+  ventasCount: number
+  porMetodo: Record<string, number>
+  servicios: { nombre: string; cantidad: number; monto: number }[]
+  productos: { nombre: string; cantidad: number; monto: number }[]
+  gastosDetalle: { id: string; descripcion: string; monto: number; categoria: string; registradoPor?: string | null }[]
+}
+
+interface AutosDetalle {
+  totalAutos: number
+  promedioPorDia: number
+  servicios: { nombre: string; cantidad: number; monto: number }[]
+  productos: { nombre: string; cantidad: number; monto: number }[]
+  eventos: { fecha: string; servicio: string; socio: string | null; lavadores: string[]; total: number }[]
+}
+
+interface LavadorDetalle {
+  id: string
+  nombre: string
+  autosSolo: number
+  autosCompartido: number
+  autosTotal: number
+  ventasAtribuidas: number
+  comisionTotal: number
+  servicios: { nombre: string; cantidad: number }[]
+  meta: number | null
+  comisionPercent: number
+  comisionThreshold: number
+}
+
 interface Empleado {
   id: string
   nombre: string
@@ -190,6 +225,16 @@ export default function Admin() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   })
   const [descuentoForm, setDescuentoForm] = useState<{ empleadoId: string; empleadoNombre: string; periodoKey: string; periodoLabel: string; monto: string; motivo: string } | null>(null)
+  const [showPeriodoModal, setShowPeriodoModal] = useState(false)
+  const [periodoDetalle, setPeriodoDetalle] = useState<PeriodoDetalle | null>(null)
+  const [periodoDetalleLoading, setPeriodoDetalleLoading] = useState(false)
+  const [showAutosModal, setShowAutosModal] = useState(false)
+  const [autosDetalle, setAutosDetalle] = useState<AutosDetalle | null>(null)
+  const [autosDetalleLoading, setAutosDetalleLoading] = useState(false)
+  const [showLavadoresModal, setShowLavadoresModal] = useState(false)
+  const [lavadoresDetalle, setLavadoresDetalle] = useState<LavadorDetalle[] | null>(null)
+  const [lavadoresDetalleLoading, setLavadoresDetalleLoading] = useState(false)
+  const [metaEdit, setMetaEdit] = useState<{ id: string; value: string } | null>(null)
   const [empleados, setEmpleados] = useState<Empleado[]>([])
   const [catalogo, setCatalogo] = useState<Catalogo | null>(null)
   const [auditoria, setAuditoria] = useState<AuditEntry[] | null>(null)
@@ -315,6 +360,76 @@ export default function Admin() {
       .then(r => r.json())
       .then(setPlanilla)
       .catch(() => {})
+  }
+
+  const openPeriodoDetalle = async (periodo: 'Q1' | 'Q2' | 'M') => {
+    setShowPeriodoModal(true)
+    setPeriodoDetalleLoading(true)
+    setPeriodoDetalle(null)
+    try {
+      const res = await fetch(`/api/admin/planilla/periodo-detalle?adminPin=${encodeURIComponent(adminPin)}&mes=${encodeURIComponent(mesPlanilla)}&periodo=${periodo}`)
+      if (!res.ok) throw new Error('Error al cargar el detalle del período')
+      setPeriodoDetalle(await res.json())
+    } catch (e: any) {
+      toast(e.message, 'error')
+      setShowPeriodoModal(false)
+    } finally {
+      setPeriodoDetalleLoading(false)
+    }
+  }
+
+  const openAutosDetalle = async () => {
+    setShowAutosModal(true)
+    setAutosDetalleLoading(true)
+    setAutosDetalle(null)
+    try {
+      const res = await fetch(`/api/admin/planilla/autos-detalle?adminPin=${encodeURIComponent(adminPin)}&mes=${encodeURIComponent(mesPlanilla)}`)
+      if (!res.ok) throw new Error('Error al cargar las estadísticas')
+      setAutosDetalle(await res.json())
+    } catch (e: any) {
+      toast(e.message, 'error')
+      setShowAutosModal(false)
+    } finally {
+      setAutosDetalleLoading(false)
+    }
+  }
+
+  const openLavadoresDetalle = async () => {
+    setShowLavadoresModal(true)
+    setLavadoresDetalleLoading(true)
+    setLavadoresDetalle(null)
+    try {
+      const res = await fetch(`/api/admin/planilla/lavadores-detalle?adminPin=${encodeURIComponent(adminPin)}&mes=${encodeURIComponent(mesPlanilla)}`)
+      if (!res.ok) throw new Error('Error al cargar los lavadores')
+      const data = await res.json()
+      setLavadoresDetalle(data.lavadores)
+    } catch (e: any) {
+      toast(e.message, 'error')
+      setShowLavadoresModal(false)
+    } finally {
+      setLavadoresDetalleLoading(false)
+    }
+  }
+
+  const handleSaveMeta = async (id: string) => {
+    if (!metaEdit) return
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/admin/empleados/${id}/meta`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPin, meta: metaEdit.value === '' ? null : parseInt(metaEdit.value, 10) }),
+      })
+      if (!res.ok) throw new Error('Error al guardar la meta')
+      const metaValue = metaEdit.value === '' ? null : parseInt(metaEdit.value, 10)
+      setLavadoresDetalle(prev => prev ? prev.map(l => (l.id === id ? { ...l, meta: metaValue } : l)) : prev)
+      setMetaEdit(null)
+      toast('Meta guardada', 'success')
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const loadTab = (t: SubTab) => {
@@ -887,7 +1002,12 @@ export default function Admin() {
               <h2>Balance quincenal</h2>
               <div className="stat-grid">
                 {planilla.quincenas.map((q, i) => (
-                  <div key={i} className="stat-card">
+                  <div
+                    key={i}
+                    className="stat-card"
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => openPeriodoDetalle(i === 0 ? 'Q1' : 'Q2')}
+                  >
                     <div className="label">{q.nombre}</div>
                     <div className="value yellow">${q.ingresos.toFixed(2)}</div>
                     <div className="sub" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
@@ -902,7 +1022,7 @@ export default function Admin() {
 
               <h2>Estadísticas del mes</h2>
               <div className="stat-grid">
-                <div className="stat-card">
+                <div className="stat-card" style={{ cursor: 'pointer' }} onClick={openAutosDetalle}>
                   <div className="label">Autos lavados</div>
                   <div className="value yellow">{planilla.stats.autosLavadosMes}</div>
                 </div>
@@ -910,7 +1030,7 @@ export default function Admin() {
                   <div className="label">Ticket promedio</div>
                   <div className="value yellow">${planilla.stats.ticketPromedio.toFixed(2)}</div>
                 </div>
-                <div className="stat-card">
+                <div className="stat-card" style={{ cursor: 'pointer' }} onClick={openLavadoresDetalle}>
                   <div className="label">Top lavador</div>
                   <div className="value green" style={{ fontSize: 15 }}>
                     {planilla.stats.topLavador ? planilla.stats.topLavador.nombre : '—'}
@@ -1791,6 +1911,281 @@ export default function Admin() {
 
                 <div className="modal-buttons">
                   <button className="btn-cancel" onClick={() => { setCierreDetalle(null); setEditCierre(null); setDeleteCierreMotivo(null) }}>
+                    Cerrar
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showPeriodoModal && (
+        <div className="modal-overlay" onClick={() => setShowPeriodoModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            {periodoDetalleLoading || !periodoDetalle ? (
+              <p className="empty-state">Cargando...</p>
+            ) : (
+              <>
+                <h2>{periodoDetalle.label}</h2>
+                <div className="detail-card">
+                  <div className="dt-row">
+                    <span className="k">Ventas ({periodoDetalle.ventasCount})</span>
+                    <span>${periodoDetalle.ingresos.toFixed(2)}</span>
+                  </div>
+                  <div className="dt-row">
+                    <span className="k">Gastos operativos</span>
+                    <span>${periodoDetalle.gastosOperativos.toFixed(2)}</span>
+                  </div>
+                  <div className="dt-row">
+                    <span className="k">Nómina registrada</span>
+                    <span>${periodoDetalle.nomina.toFixed(2)}</span>
+                  </div>
+                  <div className="dt-row">
+                    <span className="k">Neto</span>
+                    <span style={{ fontWeight: 700, color: periodoDetalle.neto >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                      ${periodoDetalle.neto.toFixed(2)}
+                    </span>
+                  </div>
+                  {Object.entries(periodoDetalle.porMetodo).map(([metodo, monto]) => (
+                    <div key={metodo} className="dt-row">
+                      <span className="k" style={{ textTransform: 'capitalize' }}>{metodo}</span>
+                      <span>${(monto as number).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <h3 className="cat-subheader">Servicios vendidos</h3>
+                {periodoDetalle.servicios.length === 0 ? (
+                  <p className="empty-state">Sin servicios</p>
+                ) : (
+                  <div className="list">
+                    {periodoDetalle.servicios.map(s => (
+                      <div key={s.nombre} className="list-row static">
+                        <div className="main">
+                          <div className="title">{s.nombre}</div>
+                          <div className="sub">{s.cantidad} vendidos</div>
+                        </div>
+                        <div className="amount">${s.monto.toFixed(2)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <h3 className="cat-subheader">Cafetería / productos vendidos</h3>
+                {periodoDetalle.productos.length === 0 ? (
+                  <p className="empty-state">Sin productos</p>
+                ) : (
+                  <div className="list">
+                    {periodoDetalle.productos.map(p => (
+                      <div key={p.nombre} className="list-row static">
+                        <div className="main">
+                          <div className="title">{p.nombre}</div>
+                          <div className="sub">{p.cantidad} vendidos</div>
+                        </div>
+                        <div className="amount">${p.monto.toFixed(2)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <h3 className="cat-subheader">Gastos ({periodoDetalle.gastosDetalle.length})</h3>
+                {periodoDetalle.gastosDetalle.length === 0 ? (
+                  <p className="empty-state">Sin gastos</p>
+                ) : (
+                  <div className="list">
+                    {periodoDetalle.gastosDetalle.map(g => (
+                      <div key={g.id} className="list-row static">
+                        <div className="main">
+                          <div className="title">{g.descripcion}</div>
+                          <div className="sub">{g.categoria}{g.registradoPor ? ` · ${g.registradoPor}` : ''}</div>
+                        </div>
+                        <div className="amount">${g.monto.toFixed(2)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="modal-buttons">
+                  <button className="btn-cancel" onClick={() => setShowPeriodoModal(false)}>
+                    Cerrar
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showAutosModal && (
+        <div className="modal-overlay" onClick={() => setShowAutosModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            {autosDetalleLoading || !autosDetalle ? (
+              <p className="empty-state">Cargando...</p>
+            ) : (
+              <>
+                <h2>Autos lavados del mes</h2>
+                <div className="detail-card">
+                  <div className="dt-row">
+                    <span className="k">Total de autos lavados</span>
+                    <span style={{ fontWeight: 700 }}>{autosDetalle.totalAutos}</span>
+                  </div>
+                  <div className="dt-row">
+                    <span className="k">Promedio por día (con ventas)</span>
+                    <span>{autosDetalle.promedioPorDia.toFixed(1)}</span>
+                  </div>
+                </div>
+
+                <h3 className="cat-subheader">Servicios más vendidos</h3>
+                {autosDetalle.servicios.length === 0 ? (
+                  <p className="empty-state">Sin servicios</p>
+                ) : (
+                  <div className="list">
+                    {autosDetalle.servicios.map(s => (
+                      <div key={s.nombre} className="list-row static">
+                        <div className="main">
+                          <div className="title">{s.nombre}</div>
+                          <div className="sub">{s.cantidad} autos</div>
+                        </div>
+                        <div className="amount">${s.monto.toFixed(2)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <h3 className="cat-subheader">Cafetería / productos más vendidos</h3>
+                {autosDetalle.productos.length === 0 ? (
+                  <p className="empty-state">Sin productos</p>
+                ) : (
+                  <div className="list">
+                    {autosDetalle.productos.map(p => (
+                      <div key={p.nombre} className="list-row static">
+                        <div className="main">
+                          <div className="title">{p.nombre}</div>
+                          <div className="sub">{p.cantidad} vendidos</div>
+                        </div>
+                        <div className="amount">${p.monto.toFixed(2)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <h3 className="cat-subheader">Detalle de autos lavados ({autosDetalle.eventos.length})</h3>
+                {autosDetalle.eventos.length === 0 ? (
+                  <p className="empty-state">Sin registros</p>
+                ) : (
+                  <div className="list">
+                    {autosDetalle.eventos.map((ev, i) => (
+                      <div key={i} className="list-row static">
+                        <div className="main">
+                          <div className="title">{ev.servicio}</div>
+                          <div className="sub">
+                            {new Date(ev.fecha).toLocaleDateString('es-SV')}
+                            {ev.socio ? ` · Socio: ${ev.socio}` : ''}
+                            {ev.lavadores.length > 0 ? ` · ${ev.lavadores.join(' + ')}` : ''}
+                          </div>
+                        </div>
+                        <div className="amount">${ev.total.toFixed(2)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="modal-buttons">
+                  <button className="btn-cancel" onClick={() => setShowAutosModal(false)}>
+                    Cerrar
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showLavadoresModal && (
+        <div className="modal-overlay" onClick={() => { setShowLavadoresModal(false); setMetaEdit(null) }}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            {lavadoresDetalleLoading || !lavadoresDetalle ? (
+              <p className="empty-state">Cargando...</p>
+            ) : (
+              <>
+                <h2>Lavadores del mes</h2>
+                {lavadoresDetalle.length === 0 ? (
+                  <p className="empty-state">Sin lavadores</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    {lavadoresDetalle.map((l, i) => (
+                      <div key={l.id} className="detail-card">
+                        <div className="dt-row" style={{ borderBottom: 'none', fontWeight: 700 }}>
+                          <span>{i === 0 ? '🏆 ' : ''}{l.nombre}</span>
+                          <span>${l.ventasAtribuidas.toFixed(2)}</span>
+                        </div>
+                        <div className="dt-row">
+                          <span className="k">Autos lavados (solo)</span>
+                          <span>{l.autosSolo}</span>
+                        </div>
+                        <div className="dt-row">
+                          <span className="k">Autos lavados (compartidos)</span>
+                          <span>{l.autosCompartido}</span>
+                        </div>
+                        <div className="dt-row">
+                          <span className="k">Total autos</span>
+                          <span style={{ fontWeight: 700 }}>{l.autosTotal}</span>
+                        </div>
+                        <div className="dt-row">
+                          <span className="k">Comisión ({l.comisionPercent}% sobre lavados {'>'} ${l.comisionThreshold})</span>
+                          <span>${l.comisionTotal.toFixed(2)}</span>
+                        </div>
+                        {l.servicios.map(s => (
+                          <div key={s.nombre} className="dt-row">
+                            <span className="k">{s.nombre}</span>
+                            <span>{s.cantidad}</span>
+                          </div>
+                        ))}
+                        <div className="dt-row" style={{ alignItems: 'center' }}>
+                          <span className="k">Meta de autos (mes)</span>
+                          {metaEdit && metaEdit.id === l.id ? (
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <input
+                                type="number"
+                                min="0"
+                                value={metaEdit.value}
+                                onChange={e => setMetaEdit({ id: l.id, value: e.target.value })}
+                                style={{ width: 70 }}
+                                autoFocus
+                              />
+                              <button className="btn-confirm" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => handleSaveMeta(l.id)} disabled={submitting}>
+                                Guardar
+                              </button>
+                              <button className="btn-cancel" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => setMetaEdit(null)}>
+                                Cancelar
+                              </button>
+                            </span>
+                          ) : (
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              {l.meta ? (
+                                <span style={{ color: l.autosTotal >= l.meta ? 'var(--green)' : 'var(--muted)' }}>
+                                  {l.autosTotal} / {l.meta}
+                                </span>
+                              ) : (
+                                <span style={{ color: 'var(--muted)' }}>Sin meta</span>
+                              )}
+                              <button
+                                className="btn-secondary"
+                                style={{ padding: '2px 8px', fontSize: 12 }}
+                                onClick={() => setMetaEdit({ id: l.id, value: l.meta ? String(l.meta) : '' })}
+                              >
+                                Editar
+                              </button>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="modal-buttons">
+                  <button className="btn-cancel" onClick={() => { setShowLavadoresModal(false); setMetaEdit(null) }}>
                     Cerrar
                   </button>
                 </div>

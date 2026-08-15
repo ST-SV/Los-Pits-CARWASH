@@ -332,7 +332,15 @@ router.get('/planilla', async (req: Request, res: Response) => {
     const planillaMensualDirecta = planillaPorPeriodo('M')
     const planillaTotalMes = planillaQ1 + planillaQ2 + planillaMensualDirecta
 
-    const autosLavadosMes = itemsMes.filter((it: any) => it.categoria === 'servicio').reduce((s: number, it: any) => s + it.cantidad, 0)
+    const autosLavadosGrupos = new Set<string>()
+    let autosLavadosMes = 0
+    itemsMes.filter((it: any) => it.categoria === 'servicio').forEach((it: any) => {
+      const key = `${it.ventaId}::${it.nombre}`
+      if (!autosLavadosGrupos.has(key)) {
+        autosLavadosGrupos.add(key)
+        autosLavadosMes += it.cantidad
+      }
+    })
     const ticketPromedio = ventasMes.length > 0 ? ingresosMes / ventasMes.length : 0
     const ventasPorMetodo = ventasMes.reduce((acc: any, v: any) => {
       acc[v.metodoPago] = (acc[v.metodoPago] || 0) + v.total
@@ -392,6 +400,256 @@ router.get('/planilla', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching planilla:', error)
     res.status(500).json({ error: 'Failed to fetch planilla' })
+  }
+})
+
+// PLANILLA: detalle de un período (quincena o mes) para el modal de balance quincenal
+router.get('/planilla/periodo-detalle', async (req: Request, res: Response) => {
+  try {
+    const { adminPin, mes, periodo } = req.query
+
+    if (!adminPin || !(await requireAdminPin(adminPin as string))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+
+    const now = new Date()
+    const mesStr = (mes as string) && /^\d{4}-\d{2}$/.test(mes as string) ? (mes as string) : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    const [year, month] = mesStr.split('-').map(Number)
+    const monthStart = new Date(year, month - 1, 1)
+    const monthEnd = new Date(year, month, 1)
+    const q1End = new Date(year, month - 1, 16)
+
+    let start = monthStart
+    let end = monthEnd
+    let label = 'Mes completo'
+    if (periodo === 'Q1') {
+      end = q1End
+      label = 'Quincena 1 (1–15)'
+    } else if (periodo === 'Q2') {
+      start = q1End
+      label = 'Quincena 2 (16–fin)'
+    }
+
+    const [ventas, gastos] = await Promise.all([
+      prisma.venta.findMany({
+        where: { fecha: { gte: start, lt: end }, anulada: false },
+        include: { items: true },
+      }),
+      prisma.gasto.findMany({ where: { fecha: { gte: start, lt: end } } }),
+    ])
+
+    const ingresos = ventas.reduce((s: number, v: any) => s + v.total, 0)
+    const gastosOperativos = gastos.filter((g: any) => g.categoria !== 'nomina').reduce((s: number, g: any) => s + g.monto, 0)
+    const nomina = gastos.filter((g: any) => g.categoria === 'nomina').reduce((s: number, g: any) => s + g.monto, 0)
+
+    const porMetodo: Record<string, number> = {}
+    ventas.forEach((v: any) => {
+      porMetodo[v.metodoPago] = (porMetodo[v.metodoPago] || 0) + v.total
+    })
+
+    const serviciosMap: Record<string, { cantidad: number; monto: number }> = {}
+    const productosMap: Record<string, { cantidad: number; monto: number }> = {}
+    ventas.forEach((v: any) => {
+      // Agrupar items de servicio por venta+nombre para no duplicar autos con varios lavadores
+      const grupos: Record<string, { cantidad: number; monto: number }> = {}
+      v.items.forEach((it: any) => {
+        if (it.categoria === 'servicio') {
+          const key = it.nombre
+          if (!grupos[key]) grupos[key] = { cantidad: it.cantidad, monto: 0 }
+          grupos[key].monto += it.precio * it.cantidad
+        } else {
+          if (!productosMap[it.nombre]) productosMap[it.nombre] = { cantidad: 0, monto: 0 }
+          productosMap[it.nombre].cantidad += it.cantidad
+          productosMap[it.nombre].monto += it.precio * it.cantidad
+        }
+      })
+      Object.entries(grupos).forEach(([nombre, g]) => {
+        if (!serviciosMap[nombre]) serviciosMap[nombre] = { cantidad: 0, monto: 0 }
+        serviciosMap[nombre].cantidad += g.cantidad
+        serviciosMap[nombre].monto += g.monto
+      })
+    })
+
+    const servicios = Object.entries(serviciosMap).map(([nombre, v]) => ({ nombre, ...v })).sort((a, b) => b.cantidad - a.cantidad)
+    const productos = Object.entries(productosMap).map(([nombre, v]) => ({ nombre, ...v })).sort((a, b) => b.cantidad - a.cantidad)
+
+    res.json({
+      label,
+      ingresos,
+      gastosOperativos,
+      nomina,
+      neto: ingresos - gastosOperativos - nomina,
+      ventasCount: ventas.length,
+      porMetodo,
+      servicios,
+      productos,
+      gastosDetalle: gastos.map((g: any) => ({ id: g.id, descripcion: g.descripcion, monto: g.monto, categoria: g.categoria, registradoPor: g.registradoPor })),
+    })
+  } catch (error) {
+    console.error('Error fetching periodo detalle:', error)
+    res.status(500).json({ error: 'Failed to fetch periodo detalle' })
+  }
+})
+
+// PLANILLA: detalle de autos lavados del mes (servicios + productos + eventos)
+router.get('/planilla/autos-detalle', async (req: Request, res: Response) => {
+  try {
+    const { adminPin, mes } = req.query
+
+    if (!adminPin || !(await requireAdminPin(adminPin as string))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+
+    const now = new Date()
+    const mesStr = (mes as string) && /^\d{4}-\d{2}$/.test(mes as string) ? (mes as string) : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    const [year, month] = mesStr.split('-').map(Number)
+    const monthStart = new Date(year, month - 1, 1)
+    const monthEnd = new Date(year, month, 1)
+
+    const ventas = await prisma.venta.findMany({
+      where: { fecha: { gte: monthStart, lt: monthEnd }, anulada: false },
+      include: { items: { include: { lavador: true } }, socio: true },
+      orderBy: { fecha: 'desc' },
+    })
+
+    const serviciosMap: Record<string, { cantidad: number; monto: number }> = {}
+    const productosMap: Record<string, { cantidad: number; monto: number }> = {}
+    const eventos: { fecha: string; servicio: string; socio: string | null; lavadores: string[]; total: number }[] = []
+    let totalAutos = 0
+    const diasConVentas = new Set<string>()
+
+    ventas.forEach((v: any) => {
+      diasConVentas.add(new Date(v.fecha).toDateString())
+      const grupos: Record<string, { cantidad: number; monto: number; lavadores: Set<string> }> = {}
+      v.items.forEach((it: any) => {
+        if (it.categoria === 'servicio') {
+          const key = it.nombre
+          if (!grupos[key]) grupos[key] = { cantidad: it.cantidad, monto: 0, lavadores: new Set() }
+          grupos[key].monto += it.precio * it.cantidad
+          if (it.lavador) grupos[key].lavadores.add(`${it.lavador.nombre} ${it.lavador.apellido || ''}`.trim())
+        } else {
+          if (!productosMap[it.nombre]) productosMap[it.nombre] = { cantidad: 0, monto: 0 }
+          productosMap[it.nombre].cantidad += it.cantidad
+          productosMap[it.nombre].monto += it.precio * it.cantidad
+        }
+      })
+      Object.entries(grupos).forEach(([nombre, g]) => {
+        if (!serviciosMap[nombre]) serviciosMap[nombre] = { cantidad: 0, monto: 0 }
+        serviciosMap[nombre].cantidad += g.cantidad
+        serviciosMap[nombre].monto += g.monto
+        totalAutos += g.cantidad
+        eventos.push({
+          fecha: v.fecha,
+          servicio: nombre,
+          socio: v.socio ? `${v.socio.nombre} ${v.socio.apellido || ''}`.trim() : null,
+          lavadores: Array.from(g.lavadores),
+          total: g.monto,
+        })
+      })
+    })
+
+    const servicios = Object.entries(serviciosMap).map(([nombre, v]) => ({ nombre, ...v })).sort((a, b) => b.cantidad - a.cantidad)
+    const productos = Object.entries(productosMap).map(([nombre, v]) => ({ nombre, ...v })).sort((a, b) => b.cantidad - a.cantidad)
+    const promedioPorDia = diasConVentas.size > 0 ? totalAutos / diasConVentas.size : 0
+
+    res.json({
+      totalAutos,
+      promedioPorDia,
+      servicios,
+      productos,
+      eventos: eventos.slice(0, 200),
+    })
+  } catch (error) {
+    console.error('Error fetching autos detalle:', error)
+    res.status(500).json({ error: 'Failed to fetch autos detalle' })
+  }
+})
+
+// PLANILLA: detalle de lavadores del mes (solo/compartido, comisión, metas)
+router.get('/planilla/lavadores-detalle', async (req: Request, res: Response) => {
+  try {
+    const { adminPin, mes } = req.query
+
+    if (!adminPin || !(await requireAdminPin(adminPin as string))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+
+    const now = new Date()
+    const mesStr = (mes as string) && /^\d{4}-\d{2}$/.test(mes as string) ? (mes as string) : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    const [year, month] = mesStr.split('-').map(Number)
+    const monthStart = new Date(year, month - 1, 1)
+    const monthEnd = new Date(year, month, 1)
+
+    const [empleados, ventas] = await Promise.all([
+      prisma.empleado.findMany({ where: { role: { in: ['lavador', 'extra'] } } }),
+      prisma.venta.findMany({
+        where: { fecha: { gte: monthStart, lt: monthEnd }, anulada: false },
+        include: { items: true },
+      }),
+    ])
+
+    const empleadosById: Record<string, any> = {}
+    empleados.forEach((e: any) => { empleadosById[e.id] = e })
+
+    const porLavador: Record<string, {
+      autosSolo: number
+      autosCompartido: number
+      ventasAtribuidas: number
+      comisionTotal: number
+      servicios: Record<string, number>
+    }> = {}
+    empleados.forEach((e: any) => {
+      porLavador[e.id] = { autosSolo: 0, autosCompartido: 0, ventasAtribuidas: 0, comisionTotal: 0, servicios: {} }
+    })
+
+    ventas.forEach((v: any) => {
+      const grupos: Record<string, { cantidad: number; lavadorIds: string[]; montos: Record<string, number> }> = {}
+      v.items.forEach((it: any) => {
+        if (it.categoria !== 'servicio' || !it.lavadorId) return
+        const key = it.nombre
+        if (!grupos[key]) grupos[key] = { cantidad: it.cantidad, lavadorIds: [], montos: {} }
+        grupos[key].lavadorIds.push(it.lavadorId)
+        grupos[key].montos[it.lavadorId] = (grupos[key].montos[it.lavadorId] || 0) + it.precio * it.cantidad
+        const emp = empleadosById[it.lavadorId]
+        if (emp && porLavador[it.lavadorId] && it.precio > (emp.comisionThreshold || 0)) {
+          porLavador[it.lavadorId].comisionTotal += it.precio * it.cantidad * ((emp.comisionPercent || 0) / 100)
+        }
+      })
+      Object.entries(grupos).forEach(([nombre, g]) => {
+        const compartido = g.lavadorIds.length > 1
+        g.lavadorIds.forEach(lavadorId => {
+          if (!porLavador[lavadorId]) return
+          if (compartido) porLavador[lavadorId].autosCompartido += g.cantidad
+          else porLavador[lavadorId].autosSolo += g.cantidad
+          porLavador[lavadorId].ventasAtribuidas += g.montos[lavadorId] || 0
+          porLavador[lavadorId].servicios[nombre] = (porLavador[lavadorId].servicios[nombre] || 0) + g.cantidad
+        })
+      })
+    })
+
+    const resultado = empleados
+      .map((e: any) => {
+        const stats = porLavador[e.id]
+        return {
+          id: e.id,
+          nombre: `${e.nombre} ${e.apellido || ''}`.trim(),
+          autosSolo: stats.autosSolo,
+          autosCompartido: stats.autosCompartido,
+          autosTotal: stats.autosSolo + stats.autosCompartido,
+          ventasAtribuidas: stats.ventasAtribuidas,
+          comisionTotal: stats.comisionTotal,
+          servicios: Object.entries(stats.servicios).map(([nombre, cantidad]) => ({ nombre, cantidad })).sort((a, b) => b.cantidad - a.cantidad),
+          meta: e.metaAutosMensual,
+          comisionPercent: e.comisionPercent,
+          comisionThreshold: e.comisionThreshold,
+        }
+      })
+      .sort((a, b) => b.ventasAtribuidas - a.ventasAtribuidas)
+
+    res.json({ lavadores: resultado })
+  } catch (error) {
+    console.error('Error fetching lavadores detalle:', error)
+    res.status(500).json({ error: 'Failed to fetch lavadores detalle' })
   }
 })
 
@@ -581,6 +839,28 @@ router.put('/empleados/:id', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error updating empleado:', error)
     res.status(500).json({ error: 'Failed to update empleado' })
+  }
+})
+
+router.put('/empleados/:id/meta', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { adminPin, meta } = req.body
+
+    if (!adminPin || !(await requireAdminPin(adminPin as string))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+
+    const metaValue = meta === null || meta === '' || meta === undefined ? null : parseInt(meta, 10)
+    const empleado = await prisma.empleado.update({
+      where: { id },
+      data: { metaAutosMensual: metaValue },
+    })
+
+    res.json(empleado)
+  } catch (error) {
+    console.error('Error updating meta:', error)
+    res.status(500).json({ error: 'Failed to update meta' })
   }
 })
 
