@@ -348,6 +348,23 @@ export default function Admin() {
   useEffect(() => {
     if (!unlocked) return
     loadTab(tab)
+    // Cerrar cualquier formulario/modal abierto al cambiar de tab, para
+    // evitar editar o guardar sobre datos de una sección que ya no se ve.
+    setCierreDetalle(null)
+    setEditCierre(null)
+    setDeleteCierreMotivo(null)
+    setDescuentoForm(null)
+    setPeriodoDetalle(null)
+    setAutosDetalle(null)
+    setShowAutosModal(false)
+    setLavadoresDetalle(null)
+    setShowLavadoresModal(false)
+    setMetaEdit(null)
+    setTurnoForm(null)
+    setShowEmpForm(false)
+    setEditingEmp(null)
+    setCatForm(null)
+    setShowPeriodoModal(false)
   }, [unlocked, tab])
 
   useEffect(() => {
