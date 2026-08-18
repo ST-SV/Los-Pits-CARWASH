@@ -90,6 +90,7 @@ interface Planilla {
   resumenMensual: {
     ingresos: number
     gastosOperativos: number
+    gastosFijos: number
     nominaYaRegistrada: number
     planillaCalculada: number
     balance: number
@@ -105,6 +106,13 @@ interface Planilla {
     ventasQ1: number
     ventasQ2: number
   }
+}
+
+interface GastoFijo {
+  id: string
+  descripcion: string
+  monto: number
+  activo: boolean
 }
 
 interface PeriodoDetalle {
@@ -225,6 +233,10 @@ export default function Admin() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   })
   const [descuentoForm, setDescuentoForm] = useState<{ empleadoId: string; empleadoNombre: string; periodoKey: string; periodoLabel: string; monto: string; motivo: string } | null>(null)
+  const [gastosFijos, setGastosFijos] = useState<GastoFijo[]>([])
+  const [gastoFijoForm, setGastoFijoForm] = useState<{ id?: string; descripcion: string; monto: string } | null>(null)
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
+  const [resetConfirmText, setResetConfirmText] = useState('')
   const [showPeriodoModal, setShowPeriodoModal] = useState(false)
   const [periodoDetalle, setPeriodoDetalle] = useState<PeriodoDetalle | null>(null)
   const [periodoDetalleLoading, setPeriodoDetalleLoading] = useState(false)
@@ -365,6 +377,9 @@ export default function Admin() {
     setEditingEmp(null)
     setCatForm(null)
     setShowPeriodoModal(false)
+    setGastoFijoForm(null)
+    setShowResetConfirm(false)
+    setResetConfirmText('')
   }, [unlocked, tab])
 
   useEffect(() => {
@@ -377,6 +392,106 @@ export default function Admin() {
       .then(r => r.json())
       .then(setPlanilla)
       .catch(() => {})
+  }
+
+  const loadGastosFijos = () => {
+    fetch(`/api/admin/gastos-fijos?adminPin=${encodeURIComponent(adminPin)}`)
+      .then(r => r.json())
+      .then(setGastosFijos)
+      .catch(() => {})
+  }
+
+  const handleSaveGastoFijo = async () => {
+    if (!gastoFijoForm || !gastoFijoForm.descripcion || !gastoFijoForm.monto) {
+      toast('Completa descripción y monto', 'error')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const isEdit = !!gastoFijoForm.id
+      const res = await fetch(isEdit ? `/api/admin/gastos-fijos/${gastoFijoForm.id}` : '/api/admin/gastos-fijos', {
+        method: isEdit ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPin, descripcion: gastoFijoForm.descripcion, monto: parseFloat(gastoFijoForm.monto) }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Error al guardar')
+      }
+      toast('Gasto fijo guardado', 'success')
+      setGastoFijoForm(null)
+      loadGastosFijos()
+      loadPlanilla(mesPlanilla)
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleToggleGastoFijo = async (g: GastoFijo) => {
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/admin/gastos-fijos/${g.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPin, activo: !g.activo }),
+      })
+      if (!res.ok) throw new Error('Error al actualizar')
+      loadGastosFijos()
+      loadPlanilla(mesPlanilla)
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleDeleteGastoFijo = async (id: string) => {
+    if (!confirm('¿Eliminar este gasto fijo?')) return
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/admin/gastos-fijos/${id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPin }),
+      })
+      if (!res.ok) throw new Error('Error al eliminar')
+      loadGastosFijos()
+      loadPlanilla(mesPlanilla)
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleResetDatosPrueba = async () => {
+    if (resetConfirmText !== 'REINICIAR') {
+      toast('Escribe REINICIAR para confirmar', 'error')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/admin/reset-datos-prueba', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPin, confirmText: resetConfirmText }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Error al reiniciar')
+      }
+      toast('Datos de prueba reiniciados', 'success')
+      setShowResetConfirm(false)
+      setResetConfirmText('')
+      loadPlanilla(mesPlanilla)
+      loadGastosFijos()
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const openPeriodoDetalle = async (periodo: 'Q1' | 'Q2' | 'M') => {
@@ -457,6 +572,7 @@ export default function Admin() {
         .catch(() => {})
     } else if (t === 'contabilidad') {
       loadPlanilla(mesPlanilla)
+      loadGastosFijos()
     } else if (t === 'empleados') {
       fetch(`/api/admin/empleados?adminPin=${encodeURIComponent(adminPin)}`)
         .then(r => r.json())
@@ -963,11 +1079,14 @@ export default function Admin() {
 
       {tab === 'contabilidad' && (
         <div>
-          <div className="action-row" style={{ alignItems: 'center', gap: 8 }}>
+          <div className="action-row" style={{ alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span className="k">Mes</span>
               <input type="month" value={mesPlanilla} onChange={e => setMesPlanilla(e.target.value)} />
             </label>
+            <button className="btn-cancel" style={{ color: 'var(--red)' }} onClick={() => setShowResetConfirm(true)}>
+              Reiniciar datos de prueba
+            </button>
           </div>
 
           {!planilla ? (
@@ -1001,6 +1120,10 @@ export default function Admin() {
                   <span>${planilla.resumenMensual.gastosOperativos.toFixed(2)}</span>
                 </div>
                 <div className="dt-row">
+                  <span className="k">— de los cuales gastos fijos</span>
+                  <span>${planilla.resumenMensual.gastosFijos.toFixed(2)}</span>
+                </div>
+                <div className="dt-row">
                   <span className="k">Nómina ya registrada como gasto</span>
                   <span>${planilla.resumenMensual.nominaYaRegistrada.toFixed(2)}</span>
                 </div>
@@ -1015,6 +1138,36 @@ export default function Admin() {
                   </span>
                 </div>
               </div>
+
+              <div className="action-row" style={{ alignItems: 'center', justifyContent: 'space-between' }}>
+                <h2 style={{ margin: 0 }}>Gastos fijos</h2>
+                <button className="btn-confirm" onClick={() => setGastoFijoForm({ descripcion: '', monto: '' })}>
+                  + Gasto fijo
+                </button>
+              </div>
+              {gastosFijos.length === 0 ? (
+                <p className="empty-state">No hay gastos fijos configurados</p>
+              ) : (
+                <div className="detail-card">
+                  {gastosFijos.map(g => (
+                    <div className="dt-row" key={g.id} style={{ opacity: g.activo ? 1 : 0.5 }}>
+                      <span className="k">{g.descripcion}{!g.activo && ' (inactivo)'}</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        ${g.monto.toFixed(2)}
+                        <button className="btn-cancel" onClick={() => setGastoFijoForm({ id: g.id, descripcion: g.descripcion, monto: String(g.monto) })}>
+                          Editar
+                        </button>
+                        <button className="btn-cancel" onClick={() => handleToggleGastoFijo(g)}>
+                          {g.activo ? 'Desactivar' : 'Activar'}
+                        </button>
+                        <button className="btn-cancel" style={{ color: 'var(--red)' }} onClick={() => handleDeleteGastoFijo(g.id)}>
+                          Eliminar
+                        </button>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <h2>Balance quincenal</h2>
               <div className="stat-grid">
@@ -1933,6 +2086,64 @@ export default function Admin() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {gastoFijoForm && (
+        <div className="modal-overlay" onClick={() => setGastoFijoForm(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h2>{gastoFijoForm.id ? 'Editar gasto fijo' : 'Nuevo gasto fijo'}</h2>
+            <div className="form-group">
+              <label>Descripción *</label>
+              <input
+                value={gastoFijoForm.descripcion}
+                onChange={e => setGastoFijoForm({ ...gastoFijoForm, descripcion: e.target.value })}
+                placeholder="Ej. Renta del local"
+              />
+            </div>
+            <div className="form-group">
+              <label>Monto mensual *</label>
+              <input
+                type="number"
+                step="0.01"
+                value={gastoFijoForm.monto}
+                onChange={e => setGastoFijoForm({ ...gastoFijoForm, monto: e.target.value })}
+                placeholder="0.00"
+              />
+            </div>
+            <div className="modal-buttons">
+              <button className="btn-cancel" onClick={() => setGastoFijoForm(null)}>
+                Cancelar
+              </button>
+              <button className="btn-confirm" onClick={handleSaveGastoFijo} disabled={submitting}>
+                {submitting ? 'Guardando...' : 'Guardar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showResetConfirm && (
+        <div className="modal-overlay" onClick={() => { setShowResetConfirm(false); setResetConfirmText('') }}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h2>Reiniciar datos de prueba</h2>
+            <p style={{ color: 'var(--red)', fontWeight: 600 }}>
+              Esto elimina permanentemente TODAS las ventas, gastos, cierres, cuentas abiertas y descuentos registrados
+              (de todos los meses, no solo el mostrado). La configuración de empleados, catálogo y horarios no se toca.
+            </p>
+            <p>Escribe <strong>REINICIAR</strong> para confirmar.</p>
+            <div className="form-group">
+              <input value={resetConfirmText} onChange={e => setResetConfirmText(e.target.value)} placeholder="REINICIAR" />
+            </div>
+            <div className="modal-buttons">
+              <button className="btn-cancel" onClick={() => { setShowResetConfirm(false); setResetConfirmText('') }}>
+                Cancelar
+              </button>
+              <button className="btn-confirm" style={{ background: 'var(--red)' }} onClick={handleResetDatosPrueba} disabled={submitting || resetConfirmText !== 'REINICIAR'}>
+                {submitting ? 'Reiniciando...' : 'Reiniciar todo'}
+              </button>
+            </div>
           </div>
         </div>
       )}

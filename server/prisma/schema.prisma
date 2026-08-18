@@ -219,6 +219,15 @@ model Gasto {
   @@index([categoria])
 }
 
+model GastoFijo {
+  id          String   @id @default(cuid())
+  descripcion String
+  monto       Float
+  activo      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 model CuentaAbierta {
   id          String  @id @default(cuid())
   etiqueta    String  // "Toyota gris - Juan" or similar

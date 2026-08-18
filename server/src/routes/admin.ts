@@ -206,6 +206,151 @@ router.delete('/cierre/:id', async (req: Request, res: Response) => {
   }
 })
 
+// GASTOS FIJOS: gastos recurrentes mensuales (renta, servicios, etc.)
+router.get('/gastos-fijos', async (req: Request, res: Response) => {
+  try {
+    const { adminPin } = req.query
+    if (!adminPin || !(await requireAdminPin(adminPin as string))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+    const gastosFijos = await prisma.gastoFijo.findMany({ orderBy: { createdAt: 'asc' } })
+    res.json(gastosFijos)
+  } catch (error) {
+    console.error('Error fetching gastos fijos:', error)
+    res.status(500).json({ error: 'Failed to fetch gastos fijos' })
+  }
+})
+
+router.post('/gastos-fijos', async (req: Request, res: Response) => {
+  try {
+    const { adminPin, descripcion, monto } = req.body
+    if (!adminPin || !(await requireAdminPin(adminPin))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+    if (!descripcion || monto === undefined || monto === null || isNaN(Number(monto))) {
+      return res.status(400).json({ error: 'Descripción y monto son requeridos' })
+    }
+    const gastoFijo = await prisma.gastoFijo.create({
+      data: { descripcion, monto: Number(monto) },
+    })
+    await prisma.auditLog.create({
+      data: {
+        actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(adminPin))?.empleadoId,
+        accion: 'Gasto fijo creado',
+        detalle: `${descripcion} · $${Number(monto).toFixed(2)}`,
+      },
+    })
+    res.json(gastoFijo)
+  } catch (error) {
+    console.error('Error creating gasto fijo:', error)
+    res.status(500).json({ error: 'Failed to create gasto fijo' })
+  }
+})
+
+router.put('/gastos-fijos/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { adminPin, descripcion, monto, activo } = req.body
+    if (!adminPin || !(await requireAdminPin(adminPin))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+    const existing = await prisma.gastoFijo.findUnique({ where: { id } })
+    if (!existing) {
+      return res.status(404).json({ error: 'Gasto fijo no encontrado' })
+    }
+    const data: any = {}
+    if (descripcion !== undefined) data.descripcion = descripcion
+    if (monto !== undefined && !isNaN(Number(monto))) data.monto = Number(monto)
+    if (activo !== undefined) data.activo = !!activo
+    const gastoFijo = await prisma.gastoFijo.update({ where: { id }, data })
+    await prisma.auditLog.create({
+      data: {
+        actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(adminPin))?.empleadoId,
+        accion: 'Gasto fijo editado',
+        detalle: `${gastoFijo.descripcion} · $${gastoFijo.monto.toFixed(2)} · ${gastoFijo.activo ? 'activo' : 'inactivo'}`,
+      },
+    })
+    res.json(gastoFijo)
+  } catch (error) {
+    console.error('Error updating gasto fijo:', error)
+    res.status(500).json({ error: 'Failed to update gasto fijo' })
+  }
+})
+
+router.delete('/gastos-fijos/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { adminPin } = req.body
+    if (!adminPin || !(await requireAdminPin(adminPin))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+    const existing = await prisma.gastoFijo.findUnique({ where: { id } })
+    if (!existing) {
+      return res.status(404).json({ error: 'Gasto fijo no encontrado' })
+    }
+    await prisma.gastoFijo.delete({ where: { id } })
+    await prisma.auditLog.create({
+      data: {
+        actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(adminPin))?.empleadoId,
+        accion: 'Gasto fijo eliminado',
+        detalle: `${existing.descripcion} · $${existing.monto.toFixed(2)}`,
+      },
+    })
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Error deleting gasto fijo:', error)
+    res.status(500).json({ error: 'Failed to delete gasto fijo' })
+  }
+})
+
+// RESET DATOS DE PRUEBA: borra ventas/gastos/cierres/cuentas para reiniciar la contabilidad
+// mientras el negocio está probando el sistema. Requiere PIN admin + texto de confirmación exacto.
+router.delete('/reset-datos-prueba', async (req: Request, res: Response) => {
+  try {
+    const { adminPin, confirmText } = req.body
+    if (!adminPin || !(await requireAdminPin(adminPin))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+    if (confirmText !== 'REINICIAR') {
+      return res.status(400).json({ error: 'Debes escribir REINICIAR para confirmar' })
+    }
+
+    const [ventasCount, gastosCount, cierresCount, cuentasCount] = await Promise.all([
+      prisma.venta.count(),
+      prisma.gasto.count(),
+      prisma.cierreDeCaja.count(),
+      prisma.cuentaAbierta.count(),
+    ])
+
+    await prisma.$transaction([
+      prisma.ventaItem.deleteMany({}),
+      prisma.venta.deleteMany({}),
+      prisma.gasto.deleteMany({}),
+      prisma.cierreDeCaja.deleteMany({}),
+      prisma.cuentaAbiertaItem.deleteMany({}),
+      prisma.cuentaAbierta.deleteMany({}),
+      prisma.descuento.deleteMany({}),
+    ])
+
+    await prisma.auditLog.create({
+      data: {
+        actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
+        actorId: (await resolveAdminActor(adminPin))?.empleadoId,
+        accion: 'Reinicio de datos de prueba',
+        detalle: `${ventasCount} ventas · ${gastosCount} gastos · ${cierresCount} cierres · ${cuentasCount} cuentas abiertas eliminadas`,
+      },
+    })
+
+    res.json({ success: true, deleted: { ventas: ventasCount, gastos: gastosCount, cierres: cierresCount, cuentas: cuentasCount } })
+  } catch (error) {
+    console.error('Error resetting datos de prueba:', error)
+    res.status(500).json({ error: 'Failed to reset datos de prueba' })
+  }
+})
+
 // PLANILLA: nómina quincenal/mensual + balance del mes en curso
 router.get('/planilla', async (req: Request, res: Response) => {
   try {
@@ -233,7 +378,7 @@ router.get('/planilla', async (req: Request, res: Response) => {
 
     const periodoKeys = [`${mesStr}-Q1`, `${mesStr}-Q2`, `${mesStr}-M`]
 
-    const [empleados, ventasHoy, gastosHoy, ventasMes, gastosMes, itemsMes, descuentosMes] = await Promise.all([
+    const [empleados, ventasHoy, gastosHoy, ventasMes, gastosMes, itemsMes, descuentosMes, gastosFijosActivos] = await Promise.all([
       prisma.empleado.findMany({ orderBy: { createdAt: 'desc' } }),
       prisma.venta.findMany({ where: { fecha: { gte: today, lt: tomorrow }, anulada: false } }),
       prisma.gasto.findMany({ where: { fecha: { gte: today, lt: tomorrow } } }),
@@ -244,7 +389,11 @@ router.get('/planilla', async (req: Request, res: Response) => {
         include: { venta: true },
       }),
       prisma.descuento.findMany({ where: { periodo: { in: periodoKeys } } }),
+      prisma.gastoFijo.findMany({ where: { activo: true } }),
     ])
+
+    const gastosFijosMes = gastosFijosActivos.reduce((s: number, g: any) => s + g.monto, 0)
+    const gastosFijosQ = gastosFijosMes / 2
 
     const hoyVentas = ventasHoy.reduce((s: number, v: any) => s + v.total, 0)
     const hoyGastos = gastosHoy.reduce((s: number, g: any) => s + g.monto, 0)
@@ -256,13 +405,16 @@ router.get('/planilla', async (req: Request, res: Response) => {
     const ingresosQ1 = sumInRange(ventasMes, q1Start, q1End)
     const ingresosQ2 = sumInRange(ventasMes, q2Start, q2End)
 
-    const gastosOperativosMes = gastosMes.filter((g: any) => g.categoria !== 'nomina').reduce((s: number, g: any) => s + g.monto, 0)
-    const gastosOperativosQ1 = gastosMes
-      .filter((g: any) => g.categoria !== 'nomina' && new Date(g.fecha) >= q1Start && new Date(g.fecha) < q1End)
-      .reduce((s: number, g: any) => s + g.monto, 0)
-    const gastosOperativosQ2 = gastosMes
-      .filter((g: any) => g.categoria !== 'nomina' && new Date(g.fecha) >= q2Start && new Date(g.fecha) < q2End)
-      .reduce((s: number, g: any) => s + g.monto, 0)
+    const gastosOperativosMes =
+      gastosMes.filter((g: any) => g.categoria !== 'nomina').reduce((s: number, g: any) => s + g.monto, 0) + gastosFijosMes
+    const gastosOperativosQ1 =
+      gastosMes
+        .filter((g: any) => g.categoria !== 'nomina' && new Date(g.fecha) >= q1Start && new Date(g.fecha) < q1End)
+        .reduce((s: number, g: any) => s + g.monto, 0) + gastosFijosQ
+    const gastosOperativosQ2 =
+      gastosMes
+        .filter((g: any) => g.categoria !== 'nomina' && new Date(g.fecha) >= q2Start && new Date(g.fecha) < q2End)
+        .reduce((s: number, g: any) => s + g.monto, 0) + gastosFijosQ
     const nominaYaRegistrada = gastosMes.filter((g: any) => g.categoria === 'nomina').reduce((s: number, g: any) => s + g.monto, 0)
 
     const periodDef = [
@@ -366,6 +518,7 @@ router.get('/planilla', async (req: Request, res: Response) => {
       resumenMensual: {
         ingresos: ingresosMes,
         gastosOperativos: gastosOperativosMes,
+        gastosFijos: gastosFijosMes,
         nominaYaRegistrada,
         planillaCalculada: planillaTotalMes,
         balance: ingresosMes - gastosOperativosMes - planillaTotalMes,
@@ -430,16 +583,18 @@ router.get('/planilla/periodo-detalle', async (req: Request, res: Response) => {
       label = 'Quincena 2 (16–fin)'
     }
 
-    const [ventas, gastos] = await Promise.all([
+    const [ventas, gastos, gastosFijosActivos] = await Promise.all([
       prisma.venta.findMany({
         where: { fecha: { gte: start, lt: end }, anulada: false },
         include: { items: true },
       }),
       prisma.gasto.findMany({ where: { fecha: { gte: start, lt: end } } }),
+      prisma.gastoFijo.findMany({ where: { activo: true } }),
     ])
 
+    const gastosFijosMonto = gastosFijosActivos.reduce((s: number, g: any) => s + g.monto, 0) * (periodo === 'M' ? 1 : 0.5)
     const ingresos = ventas.reduce((s: number, v: any) => s + v.total, 0)
-    const gastosOperativos = gastos.filter((g: any) => g.categoria !== 'nomina').reduce((s: number, g: any) => s + g.monto, 0)
+    const gastosOperativos = gastos.filter((g: any) => g.categoria !== 'nomina').reduce((s: number, g: any) => s + g.monto, 0) + gastosFijosMonto
     const nomina = gastos.filter((g: any) => g.categoria === 'nomina').reduce((s: number, g: any) => s + g.monto, 0)
 
     const porMetodo: Record<string, number> = {}

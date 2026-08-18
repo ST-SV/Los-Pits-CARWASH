@@ -67,6 +67,7 @@ export default function Caja() {
   const [gastoMonto, setGastoMonto] = useState('')
   const [gastoEmpleado, setGastoEmpleado] = useState('')
   const [gastoPin, setGastoPin] = useState('')
+  const [gastoCategoria, setGastoCategoria] = useState('otro')
   const [submitting, setSubmitting] = useState(false)
 
   const [pinAction, setPinAction] = useState<
@@ -110,6 +111,7 @@ export default function Caja() {
           monto: parseFloat(gastoMonto),
           registradoPorId: gastoEmpleado,
           registradoPorPin: gastoPin,
+          categoria: gastoCategoria,
         }),
       })
       if (!res.ok) {
@@ -122,6 +124,7 @@ export default function Caja() {
       setGastoMonto('')
       setGastoEmpleado('')
       setGastoPin('')
+      setGastoCategoria('otro')
       load()
     } catch (e: any) {
       toast(e.message, 'error')
@@ -311,7 +314,7 @@ export default function Caja() {
       )}
 
       {showGasto && (
-        <div className="modal-overlay" onClick={() => setShowGasto(false)}>
+        <div className="modal-overlay" onClick={() => { setShowGasto(false); setGastoCategoria('otro') }}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <h2>Registrar Gasto</h2>
             <div className="form-group">
@@ -327,6 +330,13 @@ export default function Caja() {
                 onChange={e => setGastoMonto(e.target.value)}
                 placeholder="0.00"
               />
+            </div>
+            <div className="form-group">
+              <label>Categoría</label>
+              <select value={gastoCategoria} onChange={e => setGastoCategoria(e.target.value)}>
+                <option value="otro">Otro / Operativo</option>
+                <option value="nomina">Nómina (pago a empleado)</option>
+              </select>
             </div>
             <div className="form-group">
               <label>Registrado por *</label>
@@ -350,7 +360,7 @@ export default function Caja() {
               />
             </div>
             <div className="modal-buttons">
-              <button className="btn-cancel" onClick={() => setShowGasto(false)}>
+              <button className="btn-cancel" onClick={() => { setShowGasto(false); setGastoCategoria('otro') }}>
                 Cancelar
               </button>
               <button className="btn-confirm" onClick={handleCrearGasto} disabled={submitting}>

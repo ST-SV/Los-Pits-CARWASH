@@ -104,7 +104,7 @@ router.get('/resumen', async (req: Request, res: Response) => {
 // POST crear gasto
 router.post('/gasto', async (req: Request, res: Response) => {
   try {
-    const { descripcion, monto, registradoPorId, registradoPorPin } = req.body
+    const { descripcion, monto, registradoPorId, registradoPorPin, categoria } = req.body
 
     if (!descripcion || !monto || !registradoPorId || !registradoPorPin) {
       return res.status(400).json({ error: 'Missing required fields' })
@@ -128,7 +128,7 @@ router.post('/gasto', async (req: Request, res: Response) => {
       data: {
         descripcion,
         monto,
-        categoria: 'otro',
+        categoria: categoria === 'nomina' ? 'nomina' : 'otro',
         registradoPor: empleado.nombre,
         registradoPorId: empleado.id,
       },
