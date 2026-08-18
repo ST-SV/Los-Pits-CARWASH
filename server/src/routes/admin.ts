@@ -4,7 +4,6 @@ import crypto from 'crypto'
 import { hashPin, verifyPin, hashPassword } from '../utils/auth.js'
 import { computeRecibo } from '../utils/recibo.js'
 import { resolveAdminActor, requireAdminPin } from '../utils/adminAuth.js'
-import { getVentanaAbierta } from './caja.js'
 
 const router = Router()
 const prisma = new PrismaClient()
@@ -27,50 +26,33 @@ router.get('/historial', async (req: Request, res: Response) => {
     const monthAgo = new Date(now)
     monthAgo.setDate(now.getDate() - 30)
 
-    // Ventana abierta de hoy: solo lo que todavía no pasó por ningún cierre,
-    // para no contar dos veces lo que ya quedó archivado en un CierreDeCaja de hoy.
-    const { desde, hasta } = await getVentanaAbierta(prisma)
+    // Fuente única de verdad: siempre se recalcula en vivo desde Venta/Gasto por rango
+    // de fechas. Nunca se suman los campos guardados en CierreDeCaja (eran una fotografía
+    // fija que quedaba desactualizada al editar/anular/borrar ventas o gastos posteriores).
+    const rangeTotals = async (desde: Date, hasta: Date) => {
+      const [ventas, gastos] = await Promise.all([
+        prisma.venta.findMany({ where: { fecha: { gte: desde, lt: hasta }, anulada: false } }),
+        prisma.gasto.findMany({ where: { fecha: { gte: desde, lt: hasta } } }),
+      ])
+      const sales = ventas.reduce((s: number, v: any) => s + v.total, 0)
+      const expenses = gastos.reduce((s: number, g: any) => s + g.monto, 0)
+      return { sales, net: sales - expenses }
+    }
 
-    const [ventasHoy, gastosHoy, historial] = await Promise.all([
-      prisma.venta.findMany({
-        where: { fecha: { gte: desde, lt: hasta }, anulada: false },
-      }),
-      prisma.gasto.findMany({
-        where: { fecha: { gte: desde, lt: hasta } },
-      }),
+    const [week, fortnight, month, historial] = await Promise.all([
+      rangeTotals(weekAgo, now),
+      rangeTotals(fortStart, now),
+      rangeTotals(monthAgo, now),
       prisma.cierreDeCaja.findMany({
         orderBy: { fecha: 'desc' },
         take: 200,
       }),
     ])
 
-    let weekSales = ventasHoy.reduce((s: number, v: any) => s + v.total, 0)
-    let weekNet = weekSales - gastosHoy.reduce((s: number, g: any) => s + g.monto, 0)
-    let fortSales = weekSales
-    let fortNet = weekNet
-    let monthSales = weekSales
-    let monthNet = weekNet
-
-    historial.forEach((d: any) => {
-      const dd = new Date(d.fecha)
-      if (dd >= weekAgo) {
-        weekSales += d.totalVentas
-        weekNet += d.neto
-      }
-      if (dd >= fortStart) {
-        fortSales += d.totalVentas
-        fortNet += d.neto
-      }
-      if (dd >= monthAgo) {
-        monthSales += d.totalVentas
-        monthNet += d.neto
-      }
-    })
-
     res.json({
-      week: { sales: weekSales, net: weekNet },
-      fortnight: { sales: fortSales, net: fortNet },
-      month: { sales: monthSales, net: monthNet },
+      week,
+      fortnight,
+      month,
       cierres: historial,
     })
   } catch (error) {
