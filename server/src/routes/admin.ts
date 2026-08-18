@@ -1059,12 +1059,26 @@ router.get('/catalogo', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid admin PIN' })
     }
 
-    const [servicios, productos] = await Promise.all([
+    const [servicios, productos, ventasAgg] = await Promise.all([
       prisma.catalogoServicio.findMany(),
       prisma.catalogoProducto.findMany(),
+      prisma.$queryRaw<{ productoId: string; totalCantidad: number; totalMonto: number }[]>`
+        SELECT vi."productoId" as "productoId", SUM(vi.cantidad)::int as "totalCantidad", SUM(vi.precio * vi.cantidad)::float as "totalMonto"
+        FROM "VentaItem" vi
+        JOIN "Venta" v ON v.id = vi."ventaId"
+        WHERE vi."productoId" IS NOT NULL AND v.anulada = false
+        GROUP BY vi."productoId"
+      `,
     ])
 
-    res.json({ servicios, productos })
+    const statsMap = new Map(ventasAgg.map(v => [v.productoId, v]))
+    const productosConStats = productos.map(p => ({
+      ...p,
+      vendidos: statsMap.get(p.id)?.totalCantidad || 0,
+      montoVendido: statsMap.get(p.id)?.totalMonto || 0,
+    }))
+
+    res.json({ servicios, productos: productosConStats })
   } catch (error) {
     console.error('Error fetching catalogo:', error)
     res.status(500).json({ error: 'Failed to fetch catalogo' })
@@ -1165,14 +1179,19 @@ router.delete('/catalogo/servicio/:id', async (req: Request, res: Response) => {
 // Similar endpoints for productos...
 router.post('/catalogo/producto', async (req: Request, res: Response) => {
   try {
-    const { adminPin, nombre, precio, categoria } = req.body
+    const { adminPin, nombre, precio, categoria, stock } = req.body
 
     if (!adminPin || !(await requireAdminPin(adminPin as string))) {
       return res.status(401).json({ error: 'Invalid admin PIN' })
     }
 
     const producto = await prisma.catalogoProducto.create({
-      data: { nombre, precio, categoria: categoria || 'Otros' },
+      data: {
+        nombre,
+        precio,
+        categoria: categoria || 'Otros',
+        stock: stock === null || stock === undefined || stock === '' ? null : Number(stock),
+      },
     })
 
     await prisma.auditLog.create({
@@ -1194,7 +1213,7 @@ router.post('/catalogo/producto', async (req: Request, res: Response) => {
 router.put('/catalogo/producto/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    const { adminPin, nombre, precio, categoria } = req.body
+    const { adminPin, nombre, precio, categoria, stock } = req.body
 
     if (!adminPin || !(await requireAdminPin(adminPin as string))) {
       return res.status(401).json({ error: 'Invalid admin PIN' })
@@ -1203,7 +1222,12 @@ router.put('/catalogo/producto/:id', async (req: Request, res: Response) => {
     const before = await prisma.catalogoProducto.findUnique({ where: { id } })
     const producto = await prisma.catalogoProducto.update({
       where: { id },
-      data: { nombre, precio, categoria: categoria || 'Otros' },
+      data: {
+        nombre,
+        precio,
+        categoria: categoria || 'Otros',
+        stock: stock === null || stock === undefined || stock === '' ? null : Number(stock),
+      },
     })
 
     if (before) {

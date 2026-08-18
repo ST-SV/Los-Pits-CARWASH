@@ -143,6 +143,7 @@ model CatalogoProducto {
   nombre String  @unique
   precio Float
   categoria String @default("Otros") // "Bebidas Frías" | "Bebidas Calientes" | "Snacks" | "Otros"
+  stock  Int?    // null = sin control de stock; número = unidades disponibles
 
   items   VentaItem[]  @relation("ProductoItems")
 

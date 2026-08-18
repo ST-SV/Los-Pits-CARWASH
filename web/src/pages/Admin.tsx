@@ -174,6 +174,9 @@ interface CatalogoItem {
   nombre: string
   precio: number
   categoria?: string
+  stock?: number | null
+  vendidos?: number
+  montoVendido?: number
 }
 
 const CATEGORIAS_PRODUCTO = ['Bebidas Frías', 'Bebidas Calientes', 'Snacks', 'Otros']
@@ -258,7 +261,7 @@ export default function Admin() {
   const [showEmpForm, setShowEmpForm] = useState(false)
   const [editingEmp, setEditingEmp] = useState<Empleado | null>(null)
 
-  const [catForm, setCatForm] = useState<{ tipo: 'servicio' | 'producto'; nombre: string; precio: string; categoria: string; id?: string } | null>(null)
+  const [catForm, setCatForm] = useState<{ tipo: 'servicio' | 'producto'; nombre: string; precio: string; categoria: string; stock: string; id?: string } | null>(null)
 
   const [oldPin, setOldPin] = useState('')
   const [newPin, setNewPin] = useState('')
@@ -883,6 +886,7 @@ export default function Admin() {
           nombre: catForm.nombre,
           precio: parseFloat(catForm.precio),
           categoria: catForm.categoria,
+          stock: catForm.tipo === 'producto' ? (catForm.stock.trim() === '' ? null : Number(catForm.stock)) : undefined,
         }),
       })
       if (!res.ok) {
@@ -1486,10 +1490,10 @@ export default function Admin() {
       {tab === 'catalogo' && (
         <div>
           <div className="action-row">
-            <button className="btn-secondary" onClick={() => setCatForm({ tipo: 'servicio', nombre: '', precio: '', categoria: 'SEDÁN' })}>
+            <button className="btn-secondary" onClick={() => setCatForm({ tipo: 'servicio', nombre: '', precio: '', categoria: 'SEDÁN', stock: '' })}>
               + Servicio
             </button>
-            <button className="btn-secondary" onClick={() => setCatForm({ tipo: 'producto', nombre: '', precio: '', categoria: 'Bebidas Frías' })}>
+            <button className="btn-secondary" onClick={() => setCatForm({ tipo: 'producto', nombre: '', precio: '', categoria: 'Bebidas Frías', stock: '' })}>
               + Producto
             </button>
           </div>
@@ -1512,7 +1516,7 @@ export default function Admin() {
                         key={s.id}
                         className="list-row"
                         onClick={() =>
-                          setCatForm({ tipo: 'servicio', nombre: s.nombre, precio: String(s.precio), categoria: s.categoria || 'General', id: s.id })
+                          setCatForm({ tipo: 'servicio', nombre: s.nombre, precio: String(s.precio), categoria: s.categoria || 'General', stock: '', id: s.id })
                         }
                       >
                         <div className="main">
@@ -1536,6 +1540,33 @@ export default function Admin() {
               </div>
             ))
           )}
+          {catalogo && catalogo.productos.length > 0 && (
+            <>
+              <h2>Cafetería · Más vendidos</h2>
+              <div className="list" style={{ marginBottom: 16 }}>
+                {[...catalogo.productos]
+                  .sort((a, b) => (b.vendidos || 0) - (a.vendidos || 0))
+                  .slice(0, 5)
+                  .map((p, idx) => (
+                    <div key={p.id} className="list-row">
+                      <div className="main">
+                        <div className="title">#{idx + 1} {p.nombre}</div>
+                        <div className="sub">{p.vendidos || 0} vendidos · ${(p.montoVendido || 0).toFixed(2)}</div>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+              {catalogo.productos.some(p => p.stock !== null && p.stock !== undefined && p.stock <= 5) && (
+                <div className="alert-box" style={{ background: '#fff3cd', border: '1px solid #ffc107', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                  <strong>⚠️ Stock bajo:</strong>{' '}
+                  {catalogo.productos
+                    .filter(p => p.stock !== null && p.stock !== undefined && p.stock <= 5)
+                    .map(p => `${p.nombre} (${p.stock})`)
+                    .join(', ')}
+                </div>
+              )}
+            </>
+          )}
           <h2>Productos</h2>
           {!catalogo || catalogo.productos.length === 0 ? (
             <p className="empty-state">Sin productos</p>
@@ -1550,16 +1581,28 @@ export default function Admin() {
                 <div className="list">
                   {catalogo.productos
                     .filter(p => (p.categoria || 'Otros') === cat)
-                    .map(p => (
+                    .map(p => {
+                      const lowStock = p.stock !== null && p.stock !== undefined && p.stock <= 5
+                      return (
                       <div
                         key={p.id}
                         className="list-row"
                         onClick={() =>
-                          setCatForm({ tipo: 'producto', nombre: p.nombre, precio: String(p.precio), categoria: p.categoria || 'Otros', id: p.id })
+                          setCatForm({ tipo: 'producto', nombre: p.nombre, precio: String(p.precio), categoria: p.categoria || 'Otros', stock: p.stock != null ? String(p.stock) : '', id: p.id })
                         }
                       >
                         <div className="main">
                           <div className="title">{p.nombre}</div>
+                          <div className="sub">
+                            {p.stock === null || p.stock === undefined
+                              ? 'Sin control de stock'
+                              : (
+                                <span style={lowStock ? { color: '#c00', fontWeight: 700 } : undefined}>
+                                  Restante: {p.stock}{lowStock ? ' ⚠️' : ''}
+                                </span>
+                              )}
+                            {' · '}Vendidos: {p.vendidos || 0}
+                          </div>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <div className="amount">${p.precio.toFixed(2)}</div>
@@ -1574,7 +1617,8 @@ export default function Admin() {
                           </button>
                         </div>
                       </div>
-                    ))}
+                      )
+                    })}
                 </div>
               </div>
             ))
@@ -1891,6 +1935,19 @@ export default function Admin() {
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
                 </select>
+              </div>
+            )}
+            {catForm.tipo === 'producto' && (
+              <div className="form-group">
+                <label>Stock (cantidad disponible)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={catForm.stock}
+                  onChange={e => setCatForm({ ...catForm, stock: e.target.value })}
+                  placeholder="Dejar vacío = sin control de stock"
+                />
               </div>
             )}
             {catForm.tipo === 'servicio' && (

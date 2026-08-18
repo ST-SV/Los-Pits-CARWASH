@@ -3,7 +3,7 @@ import { useApp } from '../context/useApp'
 
 interface Catalogo {
   servicios: { id: string; nombre: string; precio: number; categoria?: string }[]
-  productos: { id: string; nombre: string; precio: number; categoria?: string }[]
+  productos: { id: string; nombre: string; precio: number; categoria?: string; stock?: number | null }[]
 }
 
 const CATEGORIAS_PRODUCTO = ['Bebidas Frías', 'Bebidas Calientes', 'Snacks', 'Otros']
@@ -52,6 +52,13 @@ export default function Vender() {
   const [descuentoMotivo, setDescuentoMotivo] = useState('')
   const [banco, setBanco] = useState('')
   const [numeroCupon, setNumeroCupon] = useState('')
+
+  const fetchCatalogo = () => {
+    fetch('/api/vender/catalogo')
+      .then(r => r.json())
+      .then(cat => setCatalogo(cat))
+      .catch(() => {})
+  }
 
   useEffect(() => {
     Promise.all([
@@ -183,6 +190,7 @@ export default function Vender() {
 
       toast('Venta registrada', 'success')
       clearCart()
+      fetchCatalogo()
       setShowCheckout(false)
       setPin('')
       setSelectedEmpleado('')
@@ -258,16 +266,27 @@ export default function Vender() {
           <div key={cat}>
             <h3 className="cat-subheader">{cat}</h3>
             <div className="grid">
-              {items.map(p => (
-                <button
-                  key={p.id}
-                  className="item-btn"
-                  onClick={() => handleAddItem(p, 'producto')}
-                >
-                  <span className="nm">{p.nombre}</span>
-                  <span className="pr">${p.precio.toFixed(2)}</span>
-                </button>
-              ))}
+              {items.map(p => {
+                const sinStock = p.stock !== null && p.stock !== undefined && p.stock <= 0
+                const bajoStock = p.stock !== null && p.stock !== undefined && p.stock > 0 && p.stock <= 5
+                return (
+                  <button
+                    key={p.id}
+                    className="item-btn"
+                    onClick={() => handleAddItem(p, 'producto')}
+                    disabled={sinStock}
+                    style={sinStock ? { opacity: 0.5 } : undefined}
+                  >
+                    <span className="nm">{p.nombre}</span>
+                    <span className="pr">${p.precio.toFixed(2)}</span>
+                    {p.stock !== null && p.stock !== undefined && (
+                      <span className="stock" style={{ fontSize: 11, color: sinStock ? '#c00' : bajoStock ? '#c80' : '#666' }}>
+                        {sinStock ? 'Agotado' : `Quedan: ${p.stock}`}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           </div>
         )

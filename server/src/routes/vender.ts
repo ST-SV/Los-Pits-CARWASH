@@ -166,6 +166,17 @@ router.post('/venta', async (req: Request, res: Response) => {
       },
     })
 
+    // Descontar stock de los productos vendidos (clamp a 0, no afecta productos sin control de stock)
+    for (const item of items) {
+      if (item.catalogoProductoId) {
+        await prisma.$executeRaw`
+          UPDATE "CatalogoProducto"
+          SET stock = GREATEST(stock - ${item.cantidad}, 0)
+          WHERE id = ${item.catalogoProductoId} AND stock IS NOT NULL
+        `
+      }
+    }
+
     res.json(venta)
   } catch (error) {
     console.error('Error creating venta:', error)
