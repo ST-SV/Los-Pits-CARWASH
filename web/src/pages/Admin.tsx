@@ -418,6 +418,11 @@ export default function Admin() {
     setGastoFijoForm(null)
     setShowResetConfirm(false)
     setResetConfirmText('')
+    setDuenoSeleccionado(null)
+    setDuenoMovimientos(null)
+    setMovimientoForm(null)
+    setPorcentajeEdit(null)
+    setNuevoDuenoForm(null)
   }, [unlocked, tab])
 
   useEffect(() => {
@@ -1651,9 +1656,9 @@ export default function Admin() {
                 {duenos.map(s => (
                   <div
                     key={s.id}
-                    className={`list-row static ${duenoSeleccionado?.id === s.id ? 'annulled' : ''}`}
+                    className="list-row static"
                     onClick={() => handleSelectDueno(s)}
-                    style={{ cursor: 'pointer', borderColor: duenoSeleccionado?.id === s.id ? 'var(--yellow)' : undefined, opacity: 1 }}
+                    style={{ cursor: 'pointer', borderColor: duenoSeleccionado?.id === s.id ? 'var(--yellow)' : undefined }}
                   >
                     <div className="main">
                       <div className="title">{s.nombre} {s.apellido || ''}</div>
