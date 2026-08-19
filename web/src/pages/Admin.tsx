@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useApp } from '../context/useApp'
 
-type SubTab = 'historial' | 'contabilidad' | 'empleados' | 'horarios' | 'catalogo' | 'auditoria' | 'config'
+type SubTab = 'historial' | 'contabilidad' | 'socios' | 'empleados' | 'horarios' | 'catalogo' | 'auditoria' | 'config'
 
 const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 
@@ -57,6 +57,28 @@ interface DescuentoItem {
   id: string
   monto: number
   motivo: string
+}
+
+interface SocioAdmin {
+  id: string
+  numero: number
+  nombre: string
+  apellido?: string | null
+  porcentajeParticipacion: number
+}
+
+interface SocioMovimiento {
+  id: string
+  tipo: 'aporte' | 'retiro' | 'prestamo' | 'utilidad'
+  monto: number
+  fecha: string
+  motivo?: string | null
+  registradoPor?: string | null
+}
+
+interface SocioMovimientosData {
+  movimientos: SocioMovimiento[]
+  totales: { aportes: number; retiros: number; prestamos: number; utilidadPagada: number }
 }
 
 interface PlanillaPeriodo {
@@ -259,6 +281,11 @@ export default function Admin() {
   const [lavadoresDetalleLoading, setLavadoresDetalleLoading] = useState(false)
   const [metaEdit, setMetaEdit] = useState<{ id: string; value: string } | null>(null)
   const [empleados, setEmpleados] = useState<Empleado[]>([])
+  const [socios, setSocios] = useState<SocioAdmin[]>([])
+  const [socioSeleccionado, setSocioSeleccionado] = useState<SocioAdmin | null>(null)
+  const [socioMovimientos, setSocioMovimientos] = useState<SocioMovimientosData | null>(null)
+  const [movimientoForm, setMovimientoForm] = useState<{ tipo: 'aporte' | 'retiro' | 'prestamo' | 'utilidad'; monto: string; motivo: string } | null>(null)
+  const [porcentajeEdit, setPorcentajeEdit] = useState<{ id: string; value: string } | null>(null)
   const [catalogo, setCatalogo] = useState<Catalogo | null>(null)
   const [auditoria, setAuditoria] = useState<AuditEntry[] | null>(null)
   const [horariosData, setHorariosData] = useState<HorariosData | null>(null)
@@ -525,6 +552,112 @@ export default function Admin() {
     }
   }
 
+  const handleSelectSocio = async (s: SocioAdmin) => {
+    setSocioSeleccionado(s)
+    setSocioMovimientos(null)
+    setMovimientoForm(null)
+    try {
+      const res = await fetch(`/api/admin/socios/${s.id}/movimientos?adminPin=${encodeURIComponent(adminPin)}`)
+      if (!res.ok) throw new Error('Error al cargar movimientos')
+      const data = await res.json()
+      setSocioMovimientos(data)
+    } catch (e: any) {
+      toast(e.message, 'error')
+    }
+  }
+
+  const reloadSocioMovimientos = async (socioId: string) => {
+    try {
+      const res = await fetch(`/api/admin/socios/${socioId}/movimientos?adminPin=${encodeURIComponent(adminPin)}`)
+      if (!res.ok) throw new Error('Error al cargar movimientos')
+      const data = await res.json()
+      setSocioMovimientos(data)
+    } catch (e: any) {
+      toast(e.message, 'error')
+    }
+  }
+
+  const handleAddMovimiento = async () => {
+    if (!socioSeleccionado || !movimientoForm) return
+    const monto = parseFloat(movimientoForm.monto)
+    if (isNaN(monto) || monto <= 0) {
+      toast('Monto inválido', 'error')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/admin/socios/${socioSeleccionado.id}/movimiento`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPin, tipo: movimientoForm.tipo, monto, motivo: movimientoForm.motivo || undefined }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Error al registrar el movimiento')
+      }
+      toast('Movimiento registrado', 'success')
+      setMovimientoForm(null)
+      reloadSocioMovimientos(socioSeleccionado.id)
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleDeleteMovimiento = async (m: SocioMovimiento) => {
+    const motivo = prompt(`¿Por qué se elimina este movimiento de ${m.tipo} por $${m.monto.toFixed(2)}? (requerido)`)
+    if (!motivo) return
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/admin/socios/movimiento/${m.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPin, motivo }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Error al eliminar el movimiento')
+      }
+      toast('Movimiento eliminado', 'success')
+      if (socioSeleccionado) reloadSocioMovimientos(socioSeleccionado.id)
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleUpdatePorcentaje = async () => {
+    if (!socioSeleccionado || !porcentajeEdit) return
+    const pct = parseFloat(porcentajeEdit.value)
+    if (isNaN(pct) || pct < 0 || pct > 100) {
+      toast('Porcentaje inválido', 'error')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/admin/socios/${socioSeleccionado.id}/porcentaje`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPin, porcentajeParticipacion: pct }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Error al actualizar la participación')
+      }
+      const updated = await res.json()
+      setSocios(prev => prev.map(s => (s.id === updated.id ? { ...s, porcentajeParticipacion: updated.porcentajeParticipacion } : s)))
+      setSocioSeleccionado(prev => (prev ? { ...prev, porcentajeParticipacion: updated.porcentajeParticipacion } : prev))
+      setPorcentajeEdit(null)
+      toast('Participación actualizada', 'success')
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   const handleDeleteGastoFijo = async (id: string) => {
     if (!confirm('¿Eliminar este gasto fijo?')) return
     setSubmitting(true)
@@ -651,6 +784,11 @@ export default function Admin() {
     } else if (t === 'contabilidad') {
       loadPlanilla(mesPlanilla)
       loadGastosFijos()
+    } else if (t === 'socios') {
+      fetch('/api/socios')
+        .then(r => r.json())
+        .then(setSocios)
+        .catch(() => {})
     } else if (t === 'empleados') {
       fetch(`/api/admin/empleados?adminPin=${encodeURIComponent(adminPin)}`)
         .then(r => r.json())
@@ -1049,7 +1187,7 @@ export default function Admin() {
   return (
     <div className="admin">
       <div className="subnav">
-        {(['historial', 'contabilidad', 'empleados', 'horarios', 'catalogo', 'auditoria', 'config'] as SubTab[]).map(t => (
+        {(['historial', 'contabilidad', 'socios', 'empleados', 'horarios', 'catalogo', 'auditoria', 'config'] as SubTab[]).map(t => (
           <button key={t} className={`subnav-btn ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
             {t}
           </button>
@@ -1439,6 +1577,154 @@ export default function Admin() {
                     </div>
                   </div>
                 </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {tab === 'socios' && (
+        <div>
+          {socios.length === 0 ? (
+            <p className="empty-state">No hay socios registrados.</p>
+          ) : (
+            <>
+              <div className="list">
+                {socios.map(s => (
+                  <div
+                    key={s.id}
+                    className={`list-row static ${socioSeleccionado?.id === s.id ? 'annulled' : ''}`}
+                    onClick={() => handleSelectSocio(s)}
+                    style={{ cursor: 'pointer', borderColor: socioSeleccionado?.id === s.id ? 'var(--yellow)' : undefined, opacity: 1 }}
+                  >
+                    <div className="main">
+                      <div className="title">#{s.numero} · {s.nombre} {s.apellido || ''}</div>
+                      <div className="sub">Participación: {s.porcentajeParticipacion}%</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {!socioSeleccionado ? (
+                <p className="empty-state">Seleccioná un socio para ver sus movimientos.</p>
+              ) : !socioMovimientos ? (
+                <p className="empty-state">Cargando...</p>
+              ) : (
+                <>
+                  <div className="detail-card">
+                    <div className="dt-row">
+                      <span className="k">Participación</span>
+                      {porcentajeEdit && porcentajeEdit.id === socioSeleccionado.id ? (
+                        <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <input
+                            type="number"
+                            style={{ width: 70 }}
+                            value={porcentajeEdit.value}
+                            onChange={e => setPorcentajeEdit({ id: socioSeleccionado.id, value: e.target.value })}
+                          />
+                          <button className="btn-primary" disabled={submitting} onClick={handleUpdatePorcentaje}>
+                            Guardar
+                          </button>
+                          <button className="btn-secondary" onClick={() => setPorcentajeEdit(null)}>
+                            Cancelar
+                          </button>
+                        </span>
+                      ) : (
+                        <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{socioSeleccionado.porcentajeParticipacion}%</span>
+                          <button
+                            className="btn-secondary"
+                            onClick={() => setPorcentajeEdit({ id: socioSeleccionado.id, value: String(socioSeleccionado.porcentajeParticipacion) })}
+                          >
+                            Editar
+                          </button>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="stat-grid">
+                    <div className="stat-card">
+                      <div className="label">Aportes</div>
+                      <div className="value green">${socioMovimientos.totales.aportes.toFixed(2)}</div>
+                    </div>
+                    <div className="stat-card">
+                      <div className="label">Retiros</div>
+                      <div className="value red">${socioMovimientos.totales.retiros.toFixed(2)}</div>
+                    </div>
+                    <div className="stat-card">
+                      <div className="label">Préstamos</div>
+                      <div className="value red">${socioMovimientos.totales.prestamos.toFixed(2)}</div>
+                    </div>
+                    <div className="stat-card">
+                      <div className="label">Utilidad pagada</div>
+                      <div className="value red">${socioMovimientos.totales.utilidadPagada.toFixed(2)}</div>
+                    </div>
+                  </div>
+
+                  <div className="action-row">
+                    {!movimientoForm ? (
+                      <button className="btn-primary" onClick={() => setMovimientoForm({ tipo: 'aporte', monto: '', motivo: '' })}>
+                        + Nuevo movimiento
+                      </button>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+                        <select
+                          value={movimientoForm.tipo}
+                          onChange={e => setMovimientoForm({ ...movimientoForm, tipo: e.target.value as any })}
+                        >
+                          <option value="aporte">Aporte</option>
+                          <option value="retiro">Retiro</option>
+                          <option value="prestamo">Préstamo</option>
+                          <option value="utilidad">Utilidad pagada</option>
+                        </select>
+                        <input
+                          type="number"
+                          placeholder="Monto"
+                          value={movimientoForm.monto}
+                          onChange={e => setMovimientoForm({ ...movimientoForm, monto: e.target.value })}
+                        />
+                        <input
+                          type="text"
+                          placeholder="Motivo (opcional)"
+                          value={movimientoForm.motivo}
+                          onChange={e => setMovimientoForm({ ...movimientoForm, motivo: e.target.value })}
+                        />
+                        <div className="action-row">
+                          <button className="btn-primary" disabled={submitting} onClick={handleAddMovimiento}>
+                            Guardar
+                          </button>
+                          <button className="btn-secondary" onClick={() => setMovimientoForm(null)}>
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="detail-card">
+                    {socioMovimientos.movimientos.length === 0 ? (
+                      <div className="dt-row">
+                        <span className="k">Sin movimientos registrados</span>
+                      </div>
+                    ) : (
+                      socioMovimientos.movimientos.map(m => (
+                        <div key={m.id} className="dt-row">
+                          <span className="k">
+                            {new Date(m.fecha).toLocaleDateString()} · {m.tipo} {m.motivo ? `· ${m.motivo}` : ''}
+                            {m.registradoPor ? ` · ${m.registradoPor}` : ''}
+                          </span>
+                          <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>${m.monto.toFixed(2)}</span>
+                            <button className="btn-danger" onClick={() => handleDeleteMovimiento(m)}>
+                              Eliminar
+                            </button>
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </>
               )}
             </>
           )}

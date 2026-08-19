@@ -460,21 +460,25 @@ router.delete('/reset-datos-prueba', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Debes escribir REINICIAR para confirmar' })
     }
 
-    const [ventasCount, gastosCount, cierresCount, cuentasCount] = await Promise.all([
+    const [ventasCount, gastosCount, cierresCount, cuentasCount, nominaPagosCount, socioMovimientosCount] = await Promise.all([
       prisma.venta.count(),
       prisma.gasto.count(),
       prisma.cierreDeCaja.count(),
       prisma.cuentaAbierta.count(),
+      prisma.nominaPago.count(),
+      prisma.socioMovimiento.count(),
     ])
 
     await prisma.$transaction([
       prisma.ventaItem.deleteMany({}),
       prisma.venta.deleteMany({}),
+      prisma.nominaPago.deleteMany({}),
       prisma.gasto.deleteMany({}),
       prisma.cierreDeCaja.deleteMany({}),
       prisma.cuentaAbiertaItem.deleteMany({}),
       prisma.cuentaAbierta.deleteMany({}),
       prisma.descuento.deleteMany({}),
+      prisma.socioMovimiento.deleteMany({}),
     ])
 
     await prisma.auditLog.create({
@@ -482,14 +486,156 @@ router.delete('/reset-datos-prueba', async (req: Request, res: Response) => {
         actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
         actorId: (await resolveAdminActor(adminPin))?.empleadoId,
         accion: 'Reinicio de datos de prueba',
-        detalle: `${ventasCount} ventas · ${gastosCount} gastos · ${cierresCount} cierres · ${cuentasCount} cuentas abiertas eliminadas`,
+        detalle: `${ventasCount} ventas · ${gastosCount} gastos · ${cierresCount} cierres · ${cuentasCount} cuentas abiertas · ${nominaPagosCount} pagos de nómina · ${socioMovimientosCount} movimientos de socios eliminados`,
       },
     })
 
-    res.json({ success: true, deleted: { ventas: ventasCount, gastos: gastosCount, cierres: cierresCount, cuentas: cuentasCount } })
+    res.json({
+      success: true,
+      deleted: {
+        ventas: ventasCount,
+        gastos: gastosCount,
+        cierres: cierresCount,
+        cuentas: cuentasCount,
+        nominaPagos: nominaPagosCount,
+        socioMovimientos: socioMovimientosCount,
+      },
+    })
   } catch (error) {
     console.error('Error resetting datos de prueba:', error)
     res.status(500).json({ error: 'Failed to reset datos de prueba' })
+  }
+})
+
+// SOCIOS — MOVIMIENTOS: aportes, retiros, préstamos y utilidad pagada. Libro de capital
+// de socios, independiente de ingresos/gastos operativos (no se mezcla con esa contabilidad).
+router.get('/socios/:id/movimientos', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { adminPin } = req.query
+    if (!adminPin || !(await requireAdminPin(adminPin as string))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+    const movimientos = await prisma.socioMovimiento.findMany({ where: { socioId: id }, orderBy: { fecha: 'desc' } })
+    const totales = movimientos.reduce(
+      (acc: any, m: any) => {
+        if (m.tipo === 'aporte') acc.aportes += m.monto
+        else if (m.tipo === 'retiro') acc.retiros += m.monto
+        else if (m.tipo === 'prestamo') acc.prestamos += m.monto
+        else if (m.tipo === 'utilidad') acc.utilidadPagada += m.monto
+        return acc
+      },
+      { aportes: 0, retiros: 0, prestamos: 0, utilidadPagada: 0 }
+    )
+    res.json({ movimientos, totales })
+  } catch (error) {
+    console.error('Error fetching movimientos de socio:', error)
+    res.status(500).json({ error: 'Failed to fetch movimientos' })
+  }
+})
+
+router.post('/socios/:id/movimiento', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { adminPin, tipo, monto, motivo } = req.body
+    if (!adminPin || !(await requireAdminPin(adminPin))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+    if (!['aporte', 'retiro', 'prestamo', 'utilidad'].includes(tipo)) {
+      return res.status(400).json({ error: 'Tipo inválido' })
+    }
+    if (monto === undefined || monto === null || isNaN(Number(monto)) || Number(monto) <= 0) {
+      return res.status(400).json({ error: 'Monto inválido' })
+    }
+    const socio = await prisma.socio.findUnique({ where: { id } })
+    if (!socio) {
+      return res.status(404).json({ error: 'Socio no encontrado' })
+    }
+    const actor = await resolveAdminActor(adminPin)
+    const movimiento = await prisma.socioMovimiento.create({
+      data: {
+        socioId: id,
+        tipo,
+        monto: Number(monto),
+        motivo: motivo || null,
+        registradoPor: actor?.nombre || 'Administrador',
+      },
+    })
+    await prisma.auditLog.create({
+      data: {
+        actor: actor?.nombre || 'Administrador',
+        actorId: actor?.empleadoId,
+        accion: 'Movimiento de socio registrado',
+        detalle: `${socio.nombre} ${socio.apellido || ''} · ${tipo} · $${Number(monto).toFixed(2)}${motivo ? ' · ' + motivo : ''}`,
+      },
+    })
+    res.json(movimiento)
+  } catch (error) {
+    console.error('Error creating movimiento de socio:', error)
+    res.status(500).json({ error: 'Failed to create movimiento' })
+  }
+})
+
+router.delete('/socios/movimiento/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { adminPin, motivo } = req.body
+    if (!adminPin || !(await requireAdminPin(adminPin))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+    if (!motivo) {
+      return res.status(400).json({ error: 'Motivo es requerido' })
+    }
+    const movimiento = await prisma.socioMovimiento.findUnique({ where: { id }, include: { socio: true } })
+    if (!movimiento) {
+      return res.status(404).json({ error: 'Movimiento no encontrado' })
+    }
+    const actor = await resolveAdminActor(adminPin)
+    await prisma.socioMovimiento.delete({ where: { id } })
+    await prisma.auditLog.create({
+      data: {
+        actor: actor?.nombre || 'Administrador',
+        actorId: actor?.empleadoId,
+        accion: 'Movimiento de socio eliminado',
+        detalle: `${movimiento.socio.nombre} ${movimiento.socio.apellido || ''} · ${movimiento.tipo} · $${movimiento.monto.toFixed(2)} · Motivo: ${motivo}`,
+      },
+    })
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Error deleting movimiento de socio:', error)
+    res.status(500).json({ error: 'Failed to delete movimiento' })
+  }
+})
+
+router.put('/socios/:id/porcentaje', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { adminPin, porcentajeParticipacion } = req.body
+    if (!adminPin || !(await requireAdminPin(adminPin))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+    const pct = Number(porcentajeParticipacion)
+    if (isNaN(pct) || pct < 0 || pct > 100) {
+      return res.status(400).json({ error: 'Porcentaje inválido' })
+    }
+    const socio = await prisma.socio.findUnique({ where: { id } })
+    if (!socio) {
+      return res.status(404).json({ error: 'Socio no encontrado' })
+    }
+    const actor = await resolveAdminActor(adminPin)
+    const updated = await prisma.socio.update({ where: { id }, data: { porcentajeParticipacion: pct } })
+    await prisma.auditLog.create({
+      data: {
+        actor: actor?.nombre || 'Administrador',
+        actorId: actor?.empleadoId,
+        accion: 'Participación de socio actualizada',
+        detalle: `${socio.nombre} ${socio.apellido || ''} · ${socio.porcentajeParticipacion}% → ${pct}%`,
+      },
+    })
+    res.json(updated)
+  } catch (error) {
+    console.error('Error updating porcentaje de socio:', error)
+    res.status(500).json({ error: 'Failed to update porcentaje' })
   }
 })
 
