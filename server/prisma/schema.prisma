@@ -112,26 +112,38 @@ model Socio {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  porcentajeParticipacion Float @default(0) // % de participación para utilidad distribuible
-
   autos     AutoSocio[]
   ventas    Venta[]   @relation("VentaSocio")
   cuentas   CuentaAbierta[] @relation("CuentaSocio")
-  movimientos SocioMovimiento[] @relation("SocioMovimientos")
 }
 
-model SocioMovimiento {
+// Dueño = socio-inversionista del negocio (distinto de "Socio", que son los
+// clientes/miembros del carwash). Libro de capital: aportes, retiros,
+// préstamos y utilidad distribuida, independiente de la contabilidad operativa.
+model Dueno {
+  id        String    @id @default(cuid())
+  nombre    String
+  apellido  String?
+  porcentajeParticipacion Float @default(0)
+  activo    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  movimientos DuenoMovimiento[]
+}
+
+model DuenoMovimiento {
   id            String   @id @default(cuid())
-  socioId       String
-  socio         Socio    @relation("SocioMovimientos", fields: [socioId], references: [id], onDelete: Cascade)
-  tipo          String   // "aporte" | "retiro" | "prestamo" | "utilidad" (utilidad pagada al socio)
+  duenoId       String
+  dueno         Dueno    @relation(fields: [duenoId], references: [id], onDelete: Cascade)
+  tipo          String   // "aporte" | "retiro" | "prestamo" | "utilidad" (utilidad pagada al dueño)
   monto         Float
   fecha         DateTime @default(now())
   motivo        String?
   registradoPor String?
   createdAt     DateTime @default(now())
 
-  @@index([socioId])
+  @@index([duenoId])
   @@index([tipo])
   @@index([fecha])
 }
