@@ -49,6 +49,7 @@ model Empleado {
   turnos              Turno[]   @relation("EmpleadoTurnos")
   descuentos          Descuento[] @relation("EmpleadoDescuentos")
   recibos             ReciboFirma[] @relation("EmpleadoRecibos")
+  nominaPagos         NominaPago[] @relation("EmpleadoNominaPagos")
 }
 
 model ReciboFirma {
@@ -111,9 +112,28 @@ model Socio {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
+  porcentajeParticipacion Float @default(0) // % de participación para utilidad distribuible
+
   autos     AutoSocio[]
   ventas    Venta[]   @relation("VentaSocio")
   cuentas   CuentaAbierta[] @relation("CuentaSocio")
+  movimientos SocioMovimiento[] @relation("SocioMovimientos")
+}
+
+model SocioMovimiento {
+  id            String   @id @default(cuid())
+  socioId       String
+  socio         Socio    @relation("SocioMovimientos", fields: [socioId], references: [id], onDelete: Cascade)
+  tipo          String   // "aporte" | "retiro" | "prestamo" | "utilidad" (utilidad pagada al socio)
+  monto         Float
+  fecha         DateTime @default(now())
+  motivo        String?
+  registradoPor String?
+  createdAt     DateTime @default(now())
+
+  @@index([socioId])
+  @@index([tipo])
+  @@index([fecha])
 }
 
 model AutoSocio {
@@ -216,8 +236,15 @@ model Gasto {
   registrador     Empleado? @relation("GastoRegistrador", fields: [registradoPorId], references: [id], onDelete: SetNull)
   createdAt       DateTime  @default(now())
 
+  estado          String    @default("pagado") // "pendiente" | "pagado" — default preserva el comportamiento histórico
+  fechaPago       DateTime? // cuando se marcó como pagado (si aplica)
+  gastoFijoId     String?   // si este gasto es el pago real de un GastoFijo
+  gastoFijo       GastoFijo? @relation(fields: [gastoFijoId], references: [id], onDelete: SetNull)
+
   @@index([fecha])
   @@index([categoria])
+  @@index([estado])
+  @@index([gastoFijoId])
 }
 
 model GastoFijo {
@@ -227,6 +254,23 @@ model GastoFijo {
   activo      Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  pagos       Gasto[]
+}
+
+model NominaPago {
+  id            String   @id @default(cuid())
+  empleadoId    String
+  empleado      Empleado @relation("EmpleadoNominaPagos", fields: [empleadoId], references: [id], onDelete: Cascade)
+  periodoKey    String   // "2026-08-Q1" | "2026-08-Q2" | "2026-08-M"
+  monto         Float
+  fechaPago     DateTime @default(now())
+  pagadoPor     String?
+  pagadoPorId   String?
+  createdAt     DateTime @default(now())
+
+  @@index([empleadoId])
+  @@index([periodoKey])
 }
 
 model CuentaAbierta {

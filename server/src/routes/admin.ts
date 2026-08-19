@@ -288,6 +288,166 @@ router.delete('/gastos-fijos/:id', async (req: Request, res: Response) => {
   }
 })
 
+// Marca el pago real de un gasto fijo para el período actual: crea un Gasto vinculado
+// (esto es lo único que afecta flujo de caja; el GastoFijo activo sigue siendo la base del devengado/utilidad)
+router.post('/gastos-fijos/:id/pagar', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { adminPin, monto } = req.body
+    if (!adminPin || !(await requireAdminPin(adminPin))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+    const gastoFijo = await prisma.gastoFijo.findUnique({ where: { id } })
+    if (!gastoFijo) {
+      return res.status(404).json({ error: 'Gasto fijo no encontrado' })
+    }
+    const montoPago = monto !== undefined && !isNaN(Number(monto)) ? Number(monto) : gastoFijo.monto
+    const actor = await resolveAdminActor(adminPin)
+    const gasto = await prisma.gasto.create({
+      data: {
+        descripcion: `Pago: ${gastoFijo.descripcion}`,
+        monto: montoPago,
+        categoria: 'otro',
+        estado: 'pagado',
+        fechaPago: new Date(),
+        gastoFijoId: gastoFijo.id,
+        registradoPor: actor?.nombre || 'Administrador',
+        registradoPorId: actor?.empleadoId,
+      },
+    })
+    await prisma.auditLog.create({
+      data: {
+        actor: actor?.nombre || 'Administrador',
+        actorId: actor?.empleadoId,
+        accion: 'Gasto fijo pagado',
+        detalle: `${gastoFijo.descripcion} · $${montoPago.toFixed(2)}`,
+      },
+    })
+    res.json(gasto)
+  } catch (error) {
+    console.error('Error registrando pago de gasto fijo:', error)
+    res.status(500).json({ error: 'Failed to pay gasto fijo' })
+  }
+})
+
+// Historial de pagos reales de un gasto fijo (para ver pendiente vs pagado)
+router.get('/gastos-fijos/:id/pagos', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { adminPin } = req.query
+    if (!adminPin || !(await requireAdminPin(adminPin as string))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+    const pagos = await prisma.gasto.findMany({ where: { gastoFijoId: id }, orderBy: { fecha: 'desc' } })
+    res.json(pagos)
+  } catch (error) {
+    console.error('Error fetching pagos de gasto fijo:', error)
+    res.status(500).json({ error: 'Failed to fetch pagos' })
+  }
+})
+
+// Registra el pago real de nómina de un empleado para un período (quincena/mes).
+// Crea NominaPago (registro fuente de verdad de "quién cobró qué período") + un Gasto
+// vinculado en categoría nómina (esto es lo único que afecta flujo de caja).
+router.post('/nomina-pago', async (req: Request, res: Response) => {
+  try {
+    const { adminPin, empleadoId, periodoKey, monto } = req.body
+    if (!adminPin || !(await requireAdminPin(adminPin))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+    if (!empleadoId || !periodoKey || monto === undefined || monto === null || isNaN(Number(monto))) {
+      return res.status(400).json({ error: 'empleadoId, periodoKey y monto son requeridos' })
+    }
+    const empleado = await prisma.empleado.findUnique({ where: { id: empleadoId } })
+    if (!empleado) {
+      return res.status(404).json({ error: 'Empleado no encontrado' })
+    }
+    const existente = await prisma.nominaPago.findFirst({ where: { empleadoId, periodoKey } })
+    if (existente) {
+      return res.status(400).json({ error: 'Ya existe un pago de nómina registrado para este empleado en este período' })
+    }
+    const actor = await resolveAdminActor(adminPin)
+    const montoPago = Number(monto)
+
+    const [nominaPago, gasto] = await prisma.$transaction([
+      prisma.nominaPago.create({
+        data: {
+          empleadoId,
+          periodoKey,
+          monto: montoPago,
+          pagadoPor: actor?.nombre || 'Administrador',
+          pagadoPorId: actor?.empleadoId,
+        },
+      }),
+      prisma.gasto.create({
+        data: {
+          descripcion: `Nómina ${periodoKey} · ${empleado.nombre} ${empleado.apellido || ''}`.trim(),
+          monto: montoPago,
+          categoria: 'nomina',
+          estado: 'pagado',
+          fechaPago: new Date(),
+          registradoPor: actor?.nombre || 'Administrador',
+          registradoPorId: actor?.empleadoId,
+        },
+      }),
+    ])
+
+    await prisma.auditLog.create({
+      data: {
+        actor: actor?.nombre || 'Administrador',
+        actorId: actor?.empleadoId,
+        accion: 'Nómina pagada',
+        detalle: `${empleado.nombre} ${empleado.apellido || ''} · ${periodoKey} · $${montoPago.toFixed(2)}`,
+      },
+    })
+
+    res.json({ nominaPago, gasto })
+  } catch (error) {
+    console.error('Error registrando pago de nómina:', error)
+    res.status(500).json({ error: 'Failed to register nomina pago' })
+  }
+})
+
+// DELETE pago de nómina (revertir un pago registrado por error) — elimina NominaPago + su Gasto vinculado
+router.delete('/nomina-pago/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { adminPin } = req.body
+    if (!adminPin || !(await requireAdminPin(adminPin))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+    const nominaPago = await prisma.nominaPago.findUnique({ where: { id }, include: { empleado: true } })
+    if (!nominaPago) {
+      return res.status(404).json({ error: 'Pago de nómina no encontrado' })
+    }
+    // Busca el Gasto vinculado creado en el mismo instante del pago (misma categoria/monto/fechaPago)
+    const gastoVinculado = await prisma.gasto.findFirst({
+      where: {
+        categoria: 'nomina',
+        monto: nominaPago.monto,
+        fechaPago: nominaPago.fechaPago,
+      },
+    })
+    const actor = await resolveAdminActor(adminPin)
+    await prisma.$transaction([
+      prisma.nominaPago.delete({ where: { id } }),
+      ...(gastoVinculado ? [prisma.gasto.delete({ where: { id: gastoVinculado.id } })] : []),
+    ])
+    await prisma.auditLog.create({
+      data: {
+        actor: actor?.nombre || 'Administrador',
+        actorId: actor?.empleadoId,
+        accion: 'Pago de nómina revertido',
+        detalle: `${nominaPago.empleado.nombre} · ${nominaPago.periodoKey} · $${nominaPago.monto.toFixed(2)}`,
+      },
+    })
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Error revirtiendo pago de nómina:', error)
+    res.status(500).json({ error: 'Failed to delete nomina pago' })
+  }
+})
+
 // RESET DATOS DE PRUEBA: borra ventas/gastos/cierres/cuentas para reiniciar la contabilidad
 // mientras el negocio está probando el sistema. Requiere PIN admin + texto de confirmación exacto.
 router.delete('/reset-datos-prueba', async (req: Request, res: Response) => {
@@ -360,7 +520,7 @@ router.get('/planilla', async (req: Request, res: Response) => {
 
     const periodoKeys = [`${mesStr}-Q1`, `${mesStr}-Q2`, `${mesStr}-M`]
 
-    const [empleados, ventasHoy, gastosHoy, ventasMes, gastosMes, itemsMes, descuentosMes, gastosFijosActivos] = await Promise.all([
+    const [empleados, ventasHoy, gastosHoy, ventasMes, gastosMes, itemsMes, descuentosMes, gastosFijosActivos, nominaPagosPeriodo] = await Promise.all([
       prisma.empleado.findMany({ orderBy: { createdAt: 'desc' } }),
       prisma.venta.findMany({ where: { fecha: { gte: today, lt: tomorrow }, anulada: false } }),
       prisma.gasto.findMany({ where: { fecha: { gte: today, lt: tomorrow } } }),
@@ -372,10 +532,19 @@ router.get('/planilla', async (req: Request, res: Response) => {
       }),
       prisma.descuento.findMany({ where: { periodo: { in: periodoKeys } } }),
       prisma.gastoFijo.findMany({ where: { activo: true } }),
+      prisma.nominaPago.findMany({ where: { periodoKey: { in: periodoKeys } } }),
     ])
 
+    // Devengado (definición de gastos fijos activos, base para utilidad) vs. pagado real (Gasto vinculado, base para flujo de caja)
     const gastosFijosMes = gastosFijosActivos.reduce((s: number, g: any) => s + g.monto, 0)
     const gastosFijosQ = gastosFijosMes / 2
+    const gastosFijosPagadosMes = gastosMes.filter((g: any) => g.gastoFijoId).reduce((s: number, g: any) => s + g.monto, 0)
+    const gastosFijosPagadosQ1 = gastosMes
+      .filter((g: any) => g.gastoFijoId && new Date(g.fecha) >= q1Start && new Date(g.fecha) < q1End)
+      .reduce((s: number, g: any) => s + g.monto, 0)
+    const gastosFijosPagadosQ2 = gastosMes
+      .filter((g: any) => g.gastoFijoId && new Date(g.fecha) >= q2Start && new Date(g.fecha) < q2End)
+      .reduce((s: number, g: any) => s + g.monto, 0)
 
     const hoyVentas = ventasHoy.reduce((s: number, v: any) => s + v.total, 0)
     const hoyGastos = gastosHoy.reduce((s: number, g: any) => s + g.monto, 0)
@@ -430,6 +599,7 @@ router.get('/planilla', async (req: Request, res: Response) => {
             const descuentosPeriodo = descuentosMes.filter((d: any) => d.empleadoId === e.id && d.periodo === periodoKey)
             const totalDescuentos = descuentosPeriodo.reduce((s: number, d: any) => s + d.monto, 0)
             const totalPagar = sueldoBase + comision - totalDescuentos
+            const pago = nominaPagosPeriodo.find((np: any) => np.empleadoId === e.id && np.periodoKey === periodoKey)
 
             return {
               periodo: p.key,
@@ -442,6 +612,10 @@ router.get('/planilla', async (req: Request, res: Response) => {
               descuentos: descuentosPeriodo,
               totalDescuentos,
               totalPagar,
+              estado: pago ? 'pagado' : 'pendiente',
+              nominaPagoId: pago?.id || null,
+              montoPagado: pago?.monto ?? null,
+              fechaPago: pago?.fechaPago || null,
             }
           })
 
@@ -501,15 +675,21 @@ router.get('/planilla', async (req: Request, res: Response) => {
         ingresos: ingresosMes,
         gastosOperativos: gastosOperativosMes,
         gastosFijos: gastosFijosMes,
+        gastosFijosPagados: gastosFijosPagadosMes,
+        gastosFijosPendientes: Math.max(0, gastosFijosMes - gastosFijosPagadosMes),
         nominaYaRegistrada,
         planillaCalculada: planillaTotalMes,
+        // balance = utilidad devengada (ingresos - gastos operativos devengados - nómina devengada), NO es flujo de caja
         balance: ingresosMes - gastosOperativosMes - planillaTotalMes,
+        // flujoCaja = solo lo realmente cobrado/pagado en efectivo/tarjeta/transferencia
+        flujoCaja: ingresosMes - (gastosMes.reduce((s: number, g: any) => s + g.monto, 0)),
       },
       quincenas: [
         {
           nombre: 'Quincena 1 (1–15)',
           ingresos: ingresosQ1,
           gastosOperativos: gastosOperativosQ1,
+          gastosFijosPagados: gastosFijosPagadosQ1,
           planilla: planillaQ1,
           balance: ingresosQ1 - gastosOperativosQ1 - planillaQ1,
         },
@@ -517,12 +697,24 @@ router.get('/planilla', async (req: Request, res: Response) => {
           nombre: 'Quincena 2 (16–fin)',
           ingresos: ingresosQ2,
           gastosOperativos: gastosOperativosQ2,
+          gastosFijosPagados: gastosFijosPagadosQ2,
           planilla: planillaQ2,
           balance: ingresosQ2 - gastosOperativosQ2 - planillaQ2,
         },
       ],
       empleados: empleadosPlanilla,
       totalPlanilla: planillaTotalMes,
+      gastosFijosDetalle: gastosFijosActivos.map((gf: any) => {
+        const pagosMes = gastosMes.filter((g: any) => g.gastoFijoId === gf.id)
+        return {
+          id: gf.id,
+          descripcion: gf.descripcion,
+          monto: gf.monto,
+          pagadoEsteMes: pagosMes.reduce((s: number, g: any) => s + g.monto, 0),
+          estado: pagosMes.length > 0 ? 'pagado' : 'pendiente',
+          ultimoPago: pagosMes[0]?.fechaPago || null,
+        }
+      }),
       stats: {
         ticketPromedio,
         autosLavadosMes,
