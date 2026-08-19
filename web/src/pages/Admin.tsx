@@ -70,6 +70,10 @@ interface PlanillaPeriodo {
   descuentos: DescuentoItem[]
   totalDescuentos: number
   totalPagar: number
+  estado: 'pagado' | 'pendiente'
+  nominaPagoId: string | null
+  montoPagado: number | null
+  fechaPago: string | null
 }
 
 interface PlanillaEmpleado {
@@ -91,13 +95,17 @@ interface Planilla {
     ingresos: number
     gastosOperativos: number
     gastosFijos: number
+    gastosFijosPagados: number
+    gastosFijosPendientes: number
     nominaYaRegistrada: number
     planillaCalculada: number
     balance: number
+    flujoCaja: number
   }
-  quincenas: { nombre: string; ingresos: number; gastosOperativos: number; planilla: number; balance: number }[]
+  quincenas: { nombre: string; ingresos: number; gastosOperativos: number; gastosFijosPagados: number; planilla: number; balance: number }[]
   empleados: PlanillaEmpleado[]
   totalPlanilla: number
+  gastosFijosDetalle: { id: string; descripcion: string; monto: number; pagadoEsteMes: number; estado: 'pagado' | 'pendiente'; ultimoPago: string | null }[]
   stats: {
     ticketPromedio: number
     autosLavadosMes: number
@@ -442,6 +450,73 @@ export default function Admin() {
       })
       if (!res.ok) throw new Error('Error al actualizar')
       loadGastosFijos()
+      loadPlanilla(mesPlanilla)
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handlePagarGastoFijo = async (g: GastoFijo) => {
+    if (!confirm(`¿Registrar el pago de "${g.descripcion}" por $${g.monto.toFixed(2)}? Esto sí afectará el flujo de caja.`)) return
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/admin/gastos-fijos/${g.id}/pagar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPin }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Error al registrar el pago')
+      }
+      toast('Pago registrado', 'success')
+      loadPlanilla(mesPlanilla)
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handlePagarNomina = async (emp: PlanillaEmpleado, p: PlanillaPeriodo) => {
+    if (!confirm(`¿Registrar el pago de nómina de ${emp.nombre} ${emp.apellido || ''} para ${p.label} por $${p.totalPagar.toFixed(2)}? Esto sí afectará el flujo de caja.`)) return
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/admin/nomina-pago', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPin, empleadoId: emp.id, periodoKey: p.periodoKey, monto: p.totalPagar }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Error al registrar el pago de nómina')
+      }
+      toast('Pago de nómina registrado', 'success')
+      loadPlanilla(mesPlanilla)
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleRevertirPagoNomina = async (p: PlanillaPeriodo) => {
+    if (!p.nominaPagoId) return
+    if (!confirm('¿Revertir este pago de nómina? Se eliminará el registro y su gasto vinculado.')) return
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/admin/nomina-pago/${p.nominaPagoId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminPin }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Error al revertir el pago')
+      }
+      toast('Pago revertido', 'success')
       loadPlanilla(mesPlanilla)
     } catch (e: any) {
       toast(e.message, 'error')
@@ -1136,9 +1211,25 @@ export default function Admin() {
                   <span>${planilla.resumenMensual.planillaCalculada.toFixed(2)}</span>
                 </div>
                 <div className="dt-row">
-                  <span className="k">Balance del mes</span>
+                  <span className="k">Balance del mes (utilidad, devengado)</span>
                   <span style={{ fontFamily: 'monospace', fontWeight: 700, color: planilla.resumenMensual.balance >= 0 ? 'var(--green)' : 'var(--red)' }}>
                     ${planilla.resumenMensual.balance.toFixed(2)}
+                  </span>
+                </div>
+                <div className="dt-row">
+                  <span className="k">— gastos fijos pagados</span>
+                  <span>${planilla.resumenMensual.gastosFijosPagados.toFixed(2)}</span>
+                </div>
+                <div className="dt-row">
+                  <span className="k">— gastos fijos pendientes</span>
+                  <span style={{ color: planilla.resumenMensual.gastosFijosPendientes > 0 ? 'var(--red)' : undefined }}>
+                    ${planilla.resumenMensual.gastosFijosPendientes.toFixed(2)}
+                  </span>
+                </div>
+                <div className="dt-row">
+                  <span className="k">Flujo de caja del mes (real, solo pagos registrados)</span>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: planilla.resumenMensual.flujoCaja >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                    ${planilla.resumenMensual.flujoCaja.toFixed(2)}
                   </span>
                 </div>
               </div>
@@ -1153,23 +1244,39 @@ export default function Admin() {
                 <p className="empty-state">No hay gastos fijos configurados</p>
               ) : (
                 <div className="detail-card">
-                  {gastosFijos.map(g => (
-                    <div className="dt-row" key={g.id} style={{ opacity: g.activo ? 1 : 0.5 }}>
-                      <span className="k">{g.descripcion}{!g.activo && ' (inactivo)'}</span>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        ${g.monto.toFixed(2)}
-                        <button className="btn-cancel" onClick={() => setGastoFijoForm({ id: g.id, descripcion: g.descripcion, monto: String(g.monto) })}>
-                          Editar
-                        </button>
-                        <button className="btn-cancel" onClick={() => handleToggleGastoFijo(g)}>
-                          {g.activo ? 'Desactivar' : 'Activar'}
-                        </button>
-                        <button className="btn-cancel" style={{ color: 'var(--red)' }} onClick={() => handleDeleteGastoFijo(g.id)}>
-                          Eliminar
-                        </button>
-                      </span>
-                    </div>
-                  ))}
+                  {gastosFijos.map(g => {
+                    const detalle = planilla?.gastosFijosDetalle.find(d => d.id === g.id)
+                    const pagado = detalle?.estado === 'pagado'
+                    return (
+                      <div className="dt-row" key={g.id} style={{ opacity: g.activo ? 1 : 0.5, flexWrap: 'wrap' }}>
+                        <span className="k">
+                          {g.descripcion}{!g.activo && ' (inactivo)'}
+                          {g.activo && detalle && (
+                            <span style={{ marginLeft: 6, fontSize: 11, color: pagado ? 'var(--green)' : 'var(--red)' }}>
+                              {pagado ? 'Pagado este mes' : 'Pendiente este mes'}
+                            </span>
+                          )}
+                        </span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          ${g.monto.toFixed(2)}
+                          {g.activo && !pagado && (
+                            <button className="btn-confirm" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => handlePagarGastoFijo(g)}>
+                              Marcar pagado
+                            </button>
+                          )}
+                          <button className="btn-cancel" onClick={() => setGastoFijoForm({ id: g.id, descripcion: g.descripcion, monto: String(g.monto) })}>
+                            Editar
+                          </button>
+                          <button className="btn-cancel" onClick={() => handleToggleGastoFijo(g)}>
+                            {g.activo ? 'Desactivar' : 'Activar'}
+                          </button>
+                          <button className="btn-cancel" style={{ color: 'var(--red)' }} onClick={() => handleDeleteGastoFijo(g.id)}>
+                            Eliminar
+                          </button>
+                        </span>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
 
@@ -1239,7 +1346,12 @@ export default function Admin() {
                       {emp.periodos.map(p => (
                         <div key={p.periodo} style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--line)' }}>
                           <div className="dt-row" style={{ borderBottom: 'none' }}>
-                            <span className="k">{p.label}</span>
+                            <span className="k">
+                              {p.label}
+                              <span style={{ marginLeft: 6, fontSize: 11, color: p.estado === 'pagado' ? 'var(--green)' : 'var(--red)' }}>
+                                {p.estado === 'pagado' ? 'Pagado' : 'Pendiente'}
+                              </span>
+                            </span>
                             <span style={{ fontWeight: 700 }}>${p.totalPagar.toFixed(2)}</span>
                           </div>
                           <div className="dt-row">
@@ -1298,6 +1410,23 @@ export default function Admin() {
                             >
                               🔗 Enviar para firmar
                             </button>
+                            {p.estado === 'pagado' ? (
+                              <button
+                                className="btn-cancel"
+                                style={{ fontSize: 12, padding: '4px 10px', maxWidth: 180, color: 'var(--red)' }}
+                                onClick={() => handleRevertirPagoNomina(p)}
+                              >
+                                Revertir pago
+                              </button>
+                            ) : (
+                              <button
+                                className="btn-confirm"
+                                style={{ fontSize: 12, padding: '4px 10px', maxWidth: 180 }}
+                                onClick={() => handlePagarNomina(emp, p)}
+                              >
+                                Marcar pagado
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))}
