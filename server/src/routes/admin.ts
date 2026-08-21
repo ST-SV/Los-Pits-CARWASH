@@ -89,7 +89,10 @@ router.get('/cierre/:id', async (req: Request, res: Response) => {
     const [ventas, gastos] = await Promise.all([
       prisma.venta.findMany({
         where: { fecha: { gte: desde, lt: hasta } },
-        include: { items: true },
+        include: {
+          items: { include: { lavador: { select: { nombre: true } } } },
+          socio: { select: { nombre: true, apellido: true } },
+        },
         orderBy: { fecha: 'asc' },
       }),
       prisma.gasto.findMany({

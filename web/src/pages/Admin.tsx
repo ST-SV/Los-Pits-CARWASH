@@ -12,6 +12,9 @@ interface Cierre {
   totalVentas: number
   totalGastos: number
   neto: number
+  byPayEffectivo?: number
+  byPayTarjeta?: number
+  byPayTransferencia?: number
 }
 
 interface Historial {
@@ -26,6 +29,8 @@ interface VentaItemDetalle {
   nombre: string
   precio: number
   cantidad: number
+  categoria: string
+  lavador?: { nombre: string } | null
 }
 
 interface VentaDetalle {
@@ -34,10 +39,12 @@ interface VentaDetalle {
   fecha: string
   total: number
   metodoPago: string
+  referencia?: string | null
   anulada: boolean
   anuladaPor?: string | null
   anuladaMotivo?: string | null
   items: VentaItemDetalle[]
+  socio?: { nombre: string; apellido?: string | null } | null
 }
 
 interface GastoDetalle {
@@ -253,6 +260,21 @@ interface HorariosData {
   horarioNegocio: HorarioDia[]
   turnos: Turno[]
   empleados: { id: string; nombre: string; apellido?: string | null; role: string }[]
+}
+
+// Agrupa los items de un conjunto de ventas (no anuladas) por nombre, separando
+// servicios (lavados) de productos (cafetería), para el detalle expandido de un cierre.
+const aggregateItemsPorCategoria = (ventas: VentaDetalle[], categoria: 'servicio' | 'producto') => {
+  const porNombre = new Map<string, { nombre: string; cantidad: number; monto: number }>()
+  ventas.filter(v => !v.anulada).forEach(v => {
+    v.items.filter(it => it.categoria === categoria).forEach(it => {
+      const existente = porNombre.get(it.nombre) || { nombre: it.nombre, cantidad: 0, monto: 0 }
+      existente.cantidad += it.cantidad
+      existente.monto += it.precio * it.cantidad
+      porNombre.set(it.nombre, existente)
+    })
+  })
+  return Array.from(porNombre.values()).sort((a, b) => b.monto - a.monto)
 }
 
 export default function Admin() {
@@ -2212,7 +2234,21 @@ export default function Admin() {
                     </div>
                     <div className="dt-row">
                       <span className="k">Neto</span>
-                      <span>${cierreDetalle.cierre.neto.toFixed(2)}</span>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 700, color: cierreDetalle.cierre.neto >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                        ${cierreDetalle.cierre.neto.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="dt-row">
+                      <span className="k">— efectivo</span>
+                      <span>${(cierreDetalle.cierre.byPayEffectivo ?? 0).toFixed(2)}</span>
+                    </div>
+                    <div className="dt-row">
+                      <span className="k">— tarjeta</span>
+                      <span>${(cierreDetalle.cierre.byPayTarjeta ?? 0).toFixed(2)}</span>
+                    </div>
+                    <div className="dt-row">
+                      <span className="k">— transferencia</span>
+                      <span>${(cierreDetalle.cierre.byPayTransferencia ?? 0).toFixed(2)}</span>
                     </div>
                     <div className="action-row" style={{ marginTop: 10 }}>
                       <button
@@ -2307,7 +2343,53 @@ export default function Admin() {
                   </div>
                 )}
 
-                <h3 className="cat-subheader">Ventas ({cierreDetalle.ventas.length})</h3>
+                <h3 className="cat-subheader">Lavados vendidos</h3>
+                {aggregateItemsPorCategoria(cierreDetalle.ventas, 'servicio').length === 0 ? (
+                  <p className="empty-state">Sin lavados</p>
+                ) : (
+                  <div className="list">
+                    {aggregateItemsPorCategoria(cierreDetalle.ventas, 'servicio').map(s => (
+                      <div key={s.nombre} className="list-row static">
+                        <div className="main">
+                          <div className="title">{s.nombre}</div>
+                          <div className="sub">{s.cantidad} vendidos</div>
+                        </div>
+                        <div className="amount">${s.monto.toFixed(2)}</div>
+                      </div>
+                    ))}
+                    <div className="list-row static">
+                      <div className="main"><div className="title">Subtotal lavados</div></div>
+                      <div className="amount" style={{ fontWeight: 700 }}>
+                        ${aggregateItemsPorCategoria(cierreDetalle.ventas, 'servicio').reduce((s, x) => s + x.monto, 0).toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <h3 className="cat-subheader">Cafetería / productos vendidos</h3>
+                {aggregateItemsPorCategoria(cierreDetalle.ventas, 'producto').length === 0 ? (
+                  <p className="empty-state">Sin productos</p>
+                ) : (
+                  <div className="list">
+                    {aggregateItemsPorCategoria(cierreDetalle.ventas, 'producto').map(p => (
+                      <div key={p.nombre} className="list-row static">
+                        <div className="main">
+                          <div className="title">{p.nombre}</div>
+                          <div className="sub">{p.cantidad} vendidos</div>
+                        </div>
+                        <div className="amount">${p.monto.toFixed(2)}</div>
+                      </div>
+                    ))}
+                    <div className="list-row static">
+                      <div className="main"><div className="title">Subtotal cafetería</div></div>
+                      <div className="amount" style={{ fontWeight: 700 }}>
+                        ${aggregateItemsPorCategoria(cierreDetalle.ventas, 'producto').reduce((s, x) => s + x.monto, 0).toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <h3 className="cat-subheader">Recibos ({cierreDetalle.ventas.length})</h3>
                 {cierreDetalle.ventas.length === 0 ? (
                   <p className="empty-state">Sin ventas</p>
                 ) : (
@@ -2319,8 +2401,14 @@ export default function Admin() {
                             Recibo {v.numeroRecibo} {v.anulada && <span style={{ color: 'var(--red, #e33)' }}>(anulada)</span>}
                           </div>
                           <div className="sub">
-                            {v.items.map(it => `${it.cantidad}x ${it.nombre}`).join(', ')} · {v.metodoPago}
+                            Cliente: {v.socio ? `${v.socio.nombre} ${v.socio.apellido || ''}`.trim() : 'Particular'} · {v.metodoPago}
+                            {v.referencia ? ` (ref. ${v.referencia})` : ''}
                           </div>
+                          {v.items.map(it => (
+                            <div key={it.id} className="sub">
+                              {it.cantidad}x {it.nombre}{it.lavador ? ` · lavador: ${it.lavador.nombre}` : ''} — ${(it.precio * it.cantidad).toFixed(2)}
+                            </div>
+                          ))}
                           {v.anulada && v.anuladaMotivo && (
                             <div className="sub">Motivo: {v.anuladaMotivo} · Por: {v.anuladaPor}</div>
                           )}
