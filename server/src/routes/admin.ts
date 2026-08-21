@@ -4,6 +4,7 @@ import crypto from 'crypto'
 import { hashPin, verifyPin, hashPassword } from '../utils/auth.js'
 import { computeRecibo } from '../utils/recibo.js'
 import { resolveAdminActor, requireAdminPin } from '../utils/adminAuth.js'
+import { esDayBucket, addDays, esDate } from '../utils/date.js'
 
 const router = Router()
 const prisma = new PrismaClient()
@@ -22,7 +23,8 @@ router.get('/historial', async (req: Request, res: Response) => {
     const now = new Date()
     const weekAgo = new Date(now)
     weekAgo.setDate(now.getDate() - 7)
-    const fortStart = now.getDate() <= 15 ? new Date(now.getFullYear(), now.getMonth(), 1) : new Date(now.getFullYear(), now.getMonth(), 16)
+    const esNow = esDayBucket(now)
+    const fortStart = esNow.getUTCDate() <= 15 ? esDate(esNow.getUTCFullYear(), esNow.getUTCMonth(), 1) : esDate(esNow.getUTCFullYear(), esNow.getUTCMonth(), 16)
     const monthAgo = new Date(now)
     monthAgo.setDate(now.getDate() - 30)
 
@@ -75,7 +77,6 @@ router.get('/cierre/:id', async (req: Request, res: Response) => {
     }
 
     const dia = new Date(cierre.fecha)
-    dia.setHours(0, 0, 0, 0)
 
     const anterior = await prisma.cierreDeCaja.findFirst({
       where: { fecha: dia, createdAt: { lt: cierre.createdAt } },
@@ -516,17 +517,15 @@ router.get('/planilla', async (req: Request, res: Response) => {
     const mesStr = (mes as string) && /^\d{4}-\d{2}$/.test(mes as string) ? (mes as string) : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
     const [year, month] = mesStr.split('-').map(Number)
 
-    const monthStart = new Date(year, month - 1, 1)
-    const monthEnd = new Date(year, month, 1)
+    const monthStart = esDate(year, month - 1, 1)
+    const monthEnd = esDate(year, month, 1)
     const q1Start = monthStart
-    const q1End = new Date(year, month - 1, 16)
+    const q1End = esDate(year, month - 1, 16)
     const q2Start = q1End
     const q2End = monthEnd
 
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const tomorrow = new Date(today)
-    tomorrow.setDate(tomorrow.getDate() + 1)
+    const today = esDayBucket()
+    const tomorrow = addDays(today, 1)
 
     const periodoKeys = [`${mesStr}-Q1`, `${mesStr}-Q2`, `${mesStr}-M`]
 
@@ -752,9 +751,9 @@ router.get('/planilla/periodo-detalle', async (req: Request, res: Response) => {
     const now = new Date()
     const mesStr = (mes as string) && /^\d{4}-\d{2}$/.test(mes as string) ? (mes as string) : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
     const [year, month] = mesStr.split('-').map(Number)
-    const monthStart = new Date(year, month - 1, 1)
-    const monthEnd = new Date(year, month, 1)
-    const q1End = new Date(year, month - 1, 16)
+    const monthStart = esDate(year, month - 1, 1)
+    const monthEnd = esDate(year, month, 1)
+    const q1End = esDate(year, month - 1, 16)
 
     let start = monthStart
     let end = monthEnd
@@ -842,8 +841,8 @@ router.get('/planilla/autos-detalle', async (req: Request, res: Response) => {
     const now = new Date()
     const mesStr = (mes as string) && /^\d{4}-\d{2}$/.test(mes as string) ? (mes as string) : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
     const [year, month] = mesStr.split('-').map(Number)
-    const monthStart = new Date(year, month - 1, 1)
-    const monthEnd = new Date(year, month, 1)
+    const monthStart = esDate(year, month - 1, 1)
+    const monthEnd = esDate(year, month, 1)
 
     const ventas = await prisma.venta.findMany({
       where: { fecha: { gte: monthStart, lt: monthEnd }, anulada: false },
@@ -916,8 +915,8 @@ router.get('/planilla/lavadores-detalle', async (req: Request, res: Response) =>
     const now = new Date()
     const mesStr = (mes as string) && /^\d{4}-\d{2}$/.test(mes as string) ? (mes as string) : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
     const [year, month] = mesStr.split('-').map(Number)
-    const monthStart = new Date(year, month - 1, 1)
-    const monthEnd = new Date(year, month, 1)
+    const monthStart = esDate(year, month - 1, 1)
+    const monthEnd = esDate(year, month, 1)
 
     const [empleados, ventas] = await Promise.all([
       prisma.empleado.findMany({ where: { role: { in: ['lavador', 'extra'] } } }),
@@ -1526,8 +1525,9 @@ router.get('/auditoria/export', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid admin PIN' })
     }
 
-    const baseDate = fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha as string) ? new Date(`${fecha}T00:00:00`) : new Date()
-    baseDate.setHours(0, 0, 0, 0)
+    const baseDate = fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha as string)
+      ? esDate(...(fecha as string).split('-').map((n, i) => i === 1 ? Number(n) - 1 : Number(n)) as [number, number, number])
+      : esDayBucket()
 
     let desde: Date
     let hasta: Date
@@ -1535,34 +1535,31 @@ router.get('/auditoria/export', async (req: Request, res: Response) => {
     switch (rango) {
       case 'dia':
         desde = new Date(baseDate)
-        hasta = new Date(baseDate)
-        hasta.setDate(hasta.getDate() + 1)
+        hasta = addDays(baseDate, 1)
         break
       case 'semana': {
-        const dow = (baseDate.getDay() + 6) % 7 // 0=Lunes
-        desde = new Date(baseDate)
-        desde.setDate(desde.getDate() - dow)
-        hasta = new Date(desde)
-        hasta.setDate(hasta.getDate() + 7)
+        const dow = (baseDate.getUTCDay() + 6) % 7 // 0=Lunes
+        desde = addDays(baseDate, -dow)
+        hasta = addDays(desde, 7)
         break
       }
       case 'quincena': {
-        const y = baseDate.getFullYear()
-        const m = baseDate.getMonth()
-        if (baseDate.getDate() <= 15) {
-          desde = new Date(y, m, 1)
-          hasta = new Date(y, m, 16)
+        const y = baseDate.getUTCFullYear()
+        const m = baseDate.getUTCMonth()
+        if (baseDate.getUTCDate() <= 15) {
+          desde = esDate(y, m, 1)
+          hasta = esDate(y, m, 16)
         } else {
-          desde = new Date(y, m, 16)
-          hasta = new Date(y, m + 1, 1)
+          desde = esDate(y, m, 16)
+          hasta = esDate(y, m + 1, 1)
         }
         break
       }
       case 'mes': {
-        const y = baseDate.getFullYear()
-        const m = baseDate.getMonth()
-        desde = new Date(y, m, 1)
-        hasta = new Date(y, m + 1, 1)
+        const y = baseDate.getUTCFullYear()
+        const m = baseDate.getUTCMonth()
+        desde = esDate(y, m, 1)
+        hasta = esDate(y, m + 1, 1)
         break
       }
       default:

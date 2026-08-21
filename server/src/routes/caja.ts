@@ -1,14 +1,13 @@
 import { Router, Request, Response } from 'express'
 import { PrismaClient } from '@prisma/client'
 import { verifyPin } from '../utils/auth.js'
+import { esDayBucket, addDays } from '../utils/date.js'
 
 // Un registro (venta/gasto) queda "cerrado" si ya fue barrido por el último
 // cierre de caja de ese día (createdAt del cierre posterior a la fecha del registro).
 const isRegistroCerrado = async (prisma: PrismaClient, fecha: Date) => {
-  const dia = new Date(fecha)
-  dia.setHours(0, 0, 0, 0)
-  const siguiente = new Date(dia)
-  siguiente.setDate(siguiente.getDate() + 1)
+  const dia = esDayBucket(fecha)
+  const siguiente = addDays(dia, 1)
 
   const ultimoCierre = await prisma.cierreDeCaja.findFirst({
     where: { fecha: { gte: dia, lt: siguiente } },
@@ -22,10 +21,8 @@ const isRegistroCerrado = async (prisma: PrismaClient, fecha: Date) => {
 // Ventana actualmente "abierta": desde el último cierre de hoy (o el inicio del día
 // si todavía no se cerró nada) hasta ahora.
 export const getVentanaAbierta = async (prisma: PrismaClient) => {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const tomorrow = new Date(today)
-  tomorrow.setDate(tomorrow.getDate() + 1)
+  const today = esDayBucket()
+  const tomorrow = addDays(today, 1)
 
   const ultimoCierre = await prisma.cierreDeCaja.findFirst({
     where: { fecha: { gte: today, lt: tomorrow } },

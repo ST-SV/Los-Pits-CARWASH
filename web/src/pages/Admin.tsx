@@ -246,8 +246,6 @@ export default function Admin() {
   const [descuentoForm, setDescuentoForm] = useState<{ empleadoId: string; empleadoNombre: string; periodoKey: string; periodoLabel: string; monto: string; motivo: string } | null>(null)
   const [gastosFijos, setGastosFijos] = useState<GastoFijo[]>([])
   const [gastoFijoForm, setGastoFijoForm] = useState<{ id?: string; descripcion: string; monto: string } | null>(null)
-  const [showResetConfirm, setShowResetConfirm] = useState(false)
-  const [resetConfirmText, setResetConfirmText] = useState('')
   const [showPeriodoModal, setShowPeriodoModal] = useState(false)
   const [periodoDetalle, setPeriodoDetalle] = useState<PeriodoDetalle | null>(null)
   const [periodoDetalleLoading, setPeriodoDetalleLoading] = useState(false)
@@ -389,8 +387,6 @@ export default function Admin() {
     setCatForm(null)
     setShowPeriodoModal(false)
     setGastoFijoForm(null)
-    setShowResetConfirm(false)
-    setResetConfirmText('')
   }, [unlocked, tab])
 
   useEffect(() => {
@@ -537,34 +533,6 @@ export default function Admin() {
       if (!res.ok) throw new Error('Error al eliminar')
       loadGastosFijos()
       loadPlanilla(mesPlanilla)
-    } catch (e: any) {
-      toast(e.message, 'error')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const handleResetDatosPrueba = async () => {
-    if (resetConfirmText !== 'REINICIAR') {
-      toast('Escribe REINICIAR para confirmar', 'error')
-      return
-    }
-    setSubmitting(true)
-    try {
-      const res = await fetch('/api/admin/reset-datos-prueba', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminPin, confirmText: resetConfirmText }),
-      })
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error || 'Error al reiniciar')
-      }
-      toast('Datos de prueba reiniciados', 'success')
-      setShowResetConfirm(false)
-      setResetConfirmText('')
-      loadPlanilla(mesPlanilla)
-      loadGastosFijos()
     } catch (e: any) {
       toast(e.message, 'error')
     } finally {
@@ -1152,7 +1120,7 @@ export default function Admin() {
                       <div key={c.id} className="list-row" onClick={() => openCierreDetalle(c.id)} style={{ cursor: 'pointer' }}>
                         <div className="main">
                           <div className="title">
-                            {new Date(c.fecha).toLocaleDateString('es-SV')} · {new Date(c.createdAt).toLocaleTimeString('es-SV', { hour: '2-digit', minute: '2-digit' })}
+                            {new Date(c.fecha).toLocaleDateString('es-SV', { timeZone: 'UTC' })} · {new Date(c.createdAt).toLocaleTimeString('es-SV', { hour: '2-digit', minute: '2-digit' })}
                           </div>
                           <div className="sub">
                             Ventas ${c.totalVentas.toFixed(2)} · Gastos ${c.totalGastos.toFixed(2)}
@@ -1171,14 +1139,11 @@ export default function Admin() {
 
       {tab === 'contabilidad' && (
         <div>
-          <div className="action-row" style={{ alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
+          <div className="action-row" style={{ alignItems: 'center', gap: 8 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span className="k">Mes</span>
               <input type="month" value={mesPlanilla} onChange={e => setMesPlanilla(e.target.value)} />
             </label>
-            <button className="btn-cancel" style={{ color: 'var(--red)' }} onClick={() => setShowResetConfirm(true)}>
-              Reiniciar datos de prueba
-            </button>
           </div>
 
           {!planilla ? (
@@ -2123,7 +2088,7 @@ export default function Admin() {
               <>
                 <h2>
                   {cierreDetalle.cierre
-                    ? `${new Date(cierreDetalle.cierre.fecha).toLocaleDateString('es-SV')} · ${new Date(cierreDetalle.cierre.createdAt).toLocaleTimeString('es-SV', { hour: '2-digit', minute: '2-digit' })}`
+                    ? `${new Date(cierreDetalle.cierre.fecha).toLocaleDateString('es-SV', { timeZone: 'UTC' })} · ${new Date(cierreDetalle.cierre.createdAt).toLocaleTimeString('es-SV', { hour: '2-digit', minute: '2-digit' })}`
                     : 'Detalle del cierre'}
                 </h2>
                 {cierreDetalle.cierre && !editCierre && deleteCierreMotivo === null && (
@@ -2317,30 +2282,6 @@ export default function Admin() {
               </button>
               <button className="btn-confirm" onClick={handleSaveGastoFijo} disabled={submitting}>
                 {submitting ? 'Guardando...' : 'Guardar'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showResetConfirm && (
-        <div className="modal-overlay" onClick={() => { setShowResetConfirm(false); setResetConfirmText('') }}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <h2>Reiniciar datos de prueba</h2>
-            <p style={{ color: 'var(--red)', fontWeight: 600 }}>
-              Esto elimina permanentemente TODAS las ventas, gastos, cierres, cuentas abiertas y descuentos registrados
-              (de todos los meses, no solo el mostrado). La configuración de empleados, catálogo y horarios no se toca.
-            </p>
-            <p>Escribe <strong>REINICIAR</strong> para confirmar.</p>
-            <div className="form-group">
-              <input value={resetConfirmText} onChange={e => setResetConfirmText(e.target.value)} placeholder="REINICIAR" />
-            </div>
-            <div className="modal-buttons">
-              <button className="btn-cancel" onClick={() => { setShowResetConfirm(false); setResetConfirmText('') }}>
-                Cancelar
-              </button>
-              <button className="btn-confirm" style={{ background: 'var(--red)' }} onClick={handleResetDatosPrueba} disabled={submitting || resetConfirmText !== 'REINICIAR'}>
-                {submitting ? 'Reiniciando...' : 'Reiniciar todo'}
               </button>
             </div>
           </div>
