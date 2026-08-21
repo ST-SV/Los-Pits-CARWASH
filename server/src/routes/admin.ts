@@ -458,13 +458,12 @@ router.delete('/reset-datos-prueba', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Debes escribir REINICIAR para confirmar' })
     }
 
-    const [ventasCount, gastosCount, cierresCount, cuentasCount, nominaPagosCount, duenoMovimientosCount] = await Promise.all([
+    const [ventasCount, gastosCount, cierresCount, cuentasCount, nominaPagosCount] = await Promise.all([
       prisma.venta.count(),
       prisma.gasto.count(),
       prisma.cierreDeCaja.count(),
       prisma.cuentaAbierta.count(),
       prisma.nominaPago.count(),
-      prisma.duenoMovimiento.count(),
     ])
 
     await prisma.$transaction([
@@ -476,7 +475,6 @@ router.delete('/reset-datos-prueba', async (req: Request, res: Response) => {
       prisma.cuentaAbiertaItem.deleteMany({}),
       prisma.cuentaAbierta.deleteMany({}),
       prisma.descuento.deleteMany({}),
-      prisma.duenoMovimiento.deleteMany({}),
     ])
 
     await prisma.auditLog.create({
@@ -484,7 +482,7 @@ router.delete('/reset-datos-prueba', async (req: Request, res: Response) => {
         actor: (await resolveAdminActor(adminPin))?.nombre || 'Administrador',
         actorId: (await resolveAdminActor(adminPin))?.empleadoId,
         accion: 'Reinicio de datos de prueba',
-        detalle: `${ventasCount} ventas · ${gastosCount} gastos · ${cierresCount} cierres · ${cuentasCount} cuentas abiertas · ${nominaPagosCount} pagos de nómina · ${duenoMovimientosCount} movimientos de dueños eliminados`,
+        detalle: `${ventasCount} ventas · ${gastosCount} gastos · ${cierresCount} cierres · ${cuentasCount} cuentas abiertas · ${nominaPagosCount} pagos de nómina`,
       },
     })
 
@@ -496,7 +494,6 @@ router.delete('/reset-datos-prueba', async (req: Request, res: Response) => {
         cierres: cierresCount,
         cuentas: cuentasCount,
         nominaPagos: nominaPagosCount,
-        duenoMovimientos: duenoMovimientosCount,
       },
     })
   } catch (error) {
@@ -505,218 +502,6 @@ router.delete('/reset-datos-prueba', async (req: Request, res: Response) => {
   }
 })
 
-// DUEÑOS: socios-inversionistas del negocio (distinto de "Socio" = clientes del carwash).
-// CRUD + libro de capital (aportes, retiros, préstamos, utilidad pagada), independiente
-// de ingresos/gastos operativos (no se mezcla con esa contabilidad).
-router.get('/duenos', async (req: Request, res: Response) => {
-  try {
-    const { adminPin } = req.query
-    if (!adminPin || !(await requireAdminPin(adminPin as string))) {
-      return res.status(401).json({ error: 'Invalid admin PIN' })
-    }
-    const duenos = await prisma.dueno.findMany({ where: { activo: true }, orderBy: { createdAt: 'asc' } })
-    res.json(duenos)
-  } catch (error) {
-    console.error('Error fetching dueños:', error)
-    res.status(500).json({ error: 'Failed to fetch dueños' })
-  }
-})
-
-router.post('/duenos', async (req: Request, res: Response) => {
-  try {
-    const { adminPin, nombre, apellido, porcentajeParticipacion } = req.body
-    if (!adminPin || !(await requireAdminPin(adminPin))) {
-      return res.status(401).json({ error: 'Invalid admin PIN' })
-    }
-    if (!nombre) {
-      return res.status(400).json({ error: 'Nombre es requerido' })
-    }
-    const pct = porcentajeParticipacion !== undefined ? Number(porcentajeParticipacion) : 0
-    if (isNaN(pct) || pct < 0 || pct > 100) {
-      return res.status(400).json({ error: 'Porcentaje inválido' })
-    }
-    const actor = await resolveAdminActor(adminPin)
-    const dueno = await prisma.dueno.create({
-      data: { nombre, apellido: apellido || null, porcentajeParticipacion: pct },
-    })
-    await prisma.auditLog.create({
-      data: {
-        actor: actor?.nombre || 'Administrador',
-        actorId: actor?.empleadoId,
-        accion: 'Dueño creado',
-        detalle: `${nombre} ${apellido || ''} · ${pct}%`,
-      },
-    })
-    res.json(dueno)
-  } catch (error) {
-    console.error('Error creating dueño:', error)
-    res.status(500).json({ error: 'Failed to create dueño' })
-  }
-})
-
-router.put('/duenos/:id', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params
-    const { adminPin, nombre, apellido, porcentajeParticipacion } = req.body
-    if (!adminPin || !(await requireAdminPin(adminPin))) {
-      return res.status(401).json({ error: 'Invalid admin PIN' })
-    }
-    const dueno = await prisma.dueno.findUnique({ where: { id } })
-    if (!dueno) {
-      return res.status(404).json({ error: 'Dueño no encontrado' })
-    }
-    let pct = dueno.porcentajeParticipacion
-    if (porcentajeParticipacion !== undefined) {
-      pct = Number(porcentajeParticipacion)
-      if (isNaN(pct) || pct < 0 || pct > 100) {
-        return res.status(400).json({ error: 'Porcentaje inválido' })
-      }
-    }
-    const actor = await resolveAdminActor(adminPin)
-    const updated = await prisma.dueno.update({
-      where: { id },
-      data: { nombre: nombre ?? dueno.nombre, apellido: apellido !== undefined ? apellido : dueno.apellido, porcentajeParticipacion: pct },
-    })
-    await prisma.auditLog.create({
-      data: {
-        actor: actor?.nombre || 'Administrador',
-        actorId: actor?.empleadoId,
-        accion: 'Dueño actualizado',
-        detalle: `${dueno.nombre} ${dueno.apellido || ''} · ${dueno.porcentajeParticipacion}% → ${pct}%`,
-      },
-    })
-    res.json(updated)
-  } catch (error) {
-    console.error('Error updating dueño:', error)
-    res.status(500).json({ error: 'Failed to update dueño' })
-  }
-})
-
-router.delete('/duenos/:id', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params
-    const { adminPin } = req.body
-    if (!adminPin || !(await requireAdminPin(adminPin))) {
-      return res.status(401).json({ error: 'Invalid admin PIN' })
-    }
-    const dueno = await prisma.dueno.findUnique({ where: { id } })
-    if (!dueno) {
-      return res.status(404).json({ error: 'Dueño no encontrado' })
-    }
-    const actor = await resolveAdminActor(adminPin)
-    await prisma.dueno.update({ where: { id }, data: { activo: false } })
-    await prisma.auditLog.create({
-      data: {
-        actor: actor?.nombre || 'Administrador',
-        actorId: actor?.empleadoId,
-        accion: 'Dueño desactivado',
-        detalle: `${dueno.nombre} ${dueno.apellido || ''}`,
-      },
-    })
-    res.json({ success: true })
-  } catch (error) {
-    console.error('Error deactivating dueño:', error)
-    res.status(500).json({ error: 'Failed to deactivate dueño' })
-  }
-})
-
-router.get('/duenos/:id/movimientos', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params
-    const { adminPin } = req.query
-    if (!adminPin || !(await requireAdminPin(adminPin as string))) {
-      return res.status(401).json({ error: 'Invalid admin PIN' })
-    }
-    const movimientos = await prisma.duenoMovimiento.findMany({ where: { duenoId: id }, orderBy: { fecha: 'desc' } })
-    const totales = movimientos.reduce(
-      (acc: any, m: any) => {
-        if (m.tipo === 'aporte') acc.aportes += m.monto
-        else if (m.tipo === 'retiro') acc.retiros += m.monto
-        else if (m.tipo === 'prestamo') acc.prestamos += m.monto
-        else if (m.tipo === 'utilidad') acc.utilidadPagada += m.monto
-        return acc
-      },
-      { aportes: 0, retiros: 0, prestamos: 0, utilidadPagada: 0 }
-    )
-    res.json({ movimientos, totales })
-  } catch (error) {
-    console.error('Error fetching movimientos de dueño:', error)
-    res.status(500).json({ error: 'Failed to fetch movimientos' })
-  }
-})
-
-router.post('/duenos/:id/movimiento', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params
-    const { adminPin, tipo, monto, motivo } = req.body
-    if (!adminPin || !(await requireAdminPin(adminPin))) {
-      return res.status(401).json({ error: 'Invalid admin PIN' })
-    }
-    if (!['aporte', 'retiro', 'prestamo', 'utilidad'].includes(tipo)) {
-      return res.status(400).json({ error: 'Tipo inválido' })
-    }
-    if (monto === undefined || monto === null || isNaN(Number(monto)) || Number(monto) <= 0) {
-      return res.status(400).json({ error: 'Monto inválido' })
-    }
-    const dueno = await prisma.dueno.findUnique({ where: { id } })
-    if (!dueno) {
-      return res.status(404).json({ error: 'Dueño no encontrado' })
-    }
-    const actor = await resolveAdminActor(adminPin)
-    const movimiento = await prisma.duenoMovimiento.create({
-      data: {
-        duenoId: id,
-        tipo,
-        monto: Number(monto),
-        motivo: motivo || null,
-        registradoPor: actor?.nombre || 'Administrador',
-      },
-    })
-    await prisma.auditLog.create({
-      data: {
-        actor: actor?.nombre || 'Administrador',
-        actorId: actor?.empleadoId,
-        accion: 'Movimiento de dueño registrado',
-        detalle: `${dueno.nombre} ${dueno.apellido || ''} · ${tipo} · $${Number(monto).toFixed(2)}${motivo ? ' · ' + motivo : ''}`,
-      },
-    })
-    res.json(movimiento)
-  } catch (error) {
-    console.error('Error creating movimiento de dueño:', error)
-    res.status(500).json({ error: 'Failed to create movimiento' })
-  }
-})
-
-router.delete('/duenos/movimiento/:id', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params
-    const { adminPin, motivo } = req.body
-    if (!adminPin || !(await requireAdminPin(adminPin))) {
-      return res.status(401).json({ error: 'Invalid admin PIN' })
-    }
-    if (!motivo) {
-      return res.status(400).json({ error: 'Motivo es requerido' })
-    }
-    const movimiento = await prisma.duenoMovimiento.findUnique({ where: { id }, include: { dueno: true } })
-    if (!movimiento) {
-      return res.status(404).json({ error: 'Movimiento no encontrado' })
-    }
-    const actor = await resolveAdminActor(adminPin)
-    await prisma.duenoMovimiento.delete({ where: { id } })
-    await prisma.auditLog.create({
-      data: {
-        actor: actor?.nombre || 'Administrador',
-        actorId: actor?.empleadoId,
-        accion: 'Movimiento de dueño eliminado',
-        detalle: `${movimiento.dueno.nombre} ${movimiento.dueno.apellido || ''} · ${movimiento.tipo} · $${movimiento.monto.toFixed(2)} · Motivo: ${motivo}`,
-      },
-    })
-    res.json({ success: true })
-  } catch (error) {
-    console.error('Error deleting movimiento de dueño:', error)
-    res.status(500).json({ error: 'Failed to delete movimiento' })
-  }
-})
 
 // PLANILLA: nómina quincenal/mensual + balance del mes en curso
 router.get('/planilla', async (req: Request, res: Response) => {
