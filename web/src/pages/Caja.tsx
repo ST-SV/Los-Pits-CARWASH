@@ -6,16 +6,39 @@ interface VentaItem {
   nombre: string
   precio: number
   cantidad: number
+  categoria: string
+  lavador?: { nombre: string } | null
+}
+
+interface Socio {
+  id: string
+  numero: number
+  nombre: string
+  apellido?: string | null
+  telefono?: string | null
 }
 
 interface Venta {
   id: string
   numeroRecibo?: string | null
   total: number
+  descuentoMonto: number
+  descuentoMotivo?: string | null
   metodoPago: string
+  referencia?: string | null
+  montoRecibido?: number | null
+  vuelto?: number | null
+  banco?: string | null
+  numeroCupon?: string | null
+  comprobanteFoto?: string | null
   anulada: boolean
+  anuladaPor?: string | null
+  anuladaMotivo?: string | null
+  anuladaTime?: string | null
   fecha: string
   items: VentaItem[]
+  socio?: Socio | null
+  cajero?: { nombre: string } | null
 }
 
 interface Gasto {
@@ -79,6 +102,8 @@ export default function Caja() {
   const [actionEmpleado, setActionEmpleado] = useState('')
   const [actionPin, setActionPin] = useState('')
   const [actionMotivo, setActionMotivo] = useState('')
+
+  const [selectedVenta, setSelectedVenta] = useState<Venta | null>(null)
 
   const load = () => {
     setLoading(true)
@@ -251,13 +276,19 @@ export default function Caja() {
       ) : (
         <div className="list">
           {resumen.ventas.map(v => (
-            <div key={v.id} className={`list-row ${v.anulada ? 'annulled' : ''}`}>
+            <div
+              key={v.id}
+              className={`list-row ${v.anulada ? 'annulled' : ''}`}
+              style={{ cursor: 'pointer' }}
+              onClick={() => setSelectedVenta(v)}
+            >
               <div className="main">
                 <div className="title">
                   {v.items.map(it => `${it.cantidad}x ${it.nombre}`).join(', ')}
                 </div>
                 <div className="sub">
                   {v.metodoPago} · {new Date(v.fecha).toLocaleTimeString('es-SV', { hour: '2-digit', minute: '2-digit' })}
+                  {v.socio && ` · ${v.socio.nombre} ${v.socio.apellido || ''}`.trimEnd()}
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -265,7 +296,7 @@ export default function Caja() {
                 {!v.anulada && (
                   <button
                     className="btn-danger"
-                    onClick={() => setPinAction({ type: 'anular', ventaId: v.id })}
+                    onClick={(e) => { e.stopPropagation(); setPinAction({ type: 'anular', ventaId: v.id }) }}
                   >
                     Anular
                   </button>
@@ -365,6 +396,141 @@ export default function Caja() {
               </button>
               <button className="btn-confirm" onClick={handleCrearGasto} disabled={submitting}>
                 {submitting ? 'Guardando...' : 'Registrar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedVenta && (
+        <div className="modal-overlay" onClick={() => setSelectedVenta(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h2>Detalle de Venta {selectedVenta.numeroRecibo ? `· Recibo ${selectedVenta.numeroRecibo}` : ''}</h2>
+
+            {selectedVenta.anulada && (
+              <div className="dt-row" style={{ color: 'var(--red, #c0392b)' }}>
+                <span className="k">Anulada</span>
+                <span>
+                  {selectedVenta.anuladaPor ? `Por ${selectedVenta.anuladaPor}` : ''}
+                  {selectedVenta.anuladaTime ? ` · ${new Date(selectedVenta.anuladaTime).toLocaleString('es-SV')}` : ''}
+                  {selectedVenta.anuladaMotivo ? ` · Motivo: ${selectedVenta.anuladaMotivo}` : ''}
+                </span>
+              </div>
+            )}
+
+            <div className="dt-row">
+              <span className="k">Cliente</span>
+              <span>
+                {selectedVenta.socio
+                  ? `Nº ${selectedVenta.socio.numero} · ${selectedVenta.socio.nombre} ${selectedVenta.socio.apellido || ''}${selectedVenta.socio.telefono ? ` · ${selectedVenta.socio.telefono}` : ''}`
+                  : 'Sin cliente asociado'}
+              </span>
+            </div>
+
+            <div className="dt-row">
+              <span className="k">Fecha</span>
+              <span>{new Date(selectedVenta.fecha).toLocaleString('es-SV')}</span>
+            </div>
+
+            <div className="dt-row">
+              <span className="k">Cajero</span>
+              <span>{selectedVenta.cajero?.nombre || '-'}</span>
+            </div>
+
+            <div className="dt-row">
+              <span className="k">Método de pago</span>
+              <span>{selectedVenta.metodoPago}</span>
+            </div>
+
+            {selectedVenta.metodoPago === 'efectivo' && (
+              <>
+                {selectedVenta.montoRecibido != null && (
+                  <div className="dt-row">
+                    <span className="k">Recibido</span>
+                    <span>${selectedVenta.montoRecibido.toFixed(2)}</span>
+                  </div>
+                )}
+                {selectedVenta.vuelto != null && (
+                  <div className="dt-row">
+                    <span className="k">Vuelto</span>
+                    <span>${selectedVenta.vuelto.toFixed(2)}</span>
+                  </div>
+                )}
+              </>
+            )}
+
+            {selectedVenta.metodoPago === 'tarjeta' && (
+              <>
+                {selectedVenta.banco && (
+                  <div className="dt-row">
+                    <span className="k">Banco</span>
+                    <span>{selectedVenta.banco}</span>
+                  </div>
+                )}
+                {selectedVenta.numeroCupon && (
+                  <div className="dt-row">
+                    <span className="k">Nº Cupón</span>
+                    <span>{selectedVenta.numeroCupon}</span>
+                  </div>
+                )}
+              </>
+            )}
+
+            {selectedVenta.metodoPago === 'transferencia' && (
+              <>
+                {selectedVenta.referencia && (
+                  <div className="dt-row">
+                    <span className="k">Referencia</span>
+                    <span>{selectedVenta.referencia}</span>
+                  </div>
+                )}
+                {selectedVenta.comprobanteFoto && (
+                  <div className="form-group">
+                    <label>Comprobante</label>
+                    <img
+                      src={selectedVenta.comprobanteFoto}
+                      alt="Comprobante de transferencia"
+                      style={{ maxWidth: '100%', borderRadius: 8 }}
+                    />
+                  </div>
+                )}
+              </>
+            )}
+
+            {selectedVenta.descuentoMonto > 0 && (
+              <div className="dt-row">
+                <span className="k">Descuento</span>
+                <span>
+                  -${selectedVenta.descuentoMonto.toFixed(2)}
+                  {selectedVenta.descuentoMotivo ? ` · ${selectedVenta.descuentoMotivo}` : ''}
+                </span>
+              </div>
+            )}
+
+            <h3 style={{ marginTop: 16 }}>Items</h3>
+            <div className="list">
+              {selectedVenta.items.map(it => (
+                <div key={it.id} className="list-row">
+                  <div className="main">
+                    <div className="title">{it.cantidad}x {it.nombre}</div>
+                    <div className="sub">
+                      {it.categoria}
+                      {it.lavador ? ` · Lavador: ${it.lavador.nombre}` : ''}
+                    </div>
+                  </div>
+                  <div className="amount">${(it.precio * it.cantidad).toFixed(2)}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="dt-row" style={{ marginTop: 12, fontWeight: 'bold' }}>
+              <span className="k">Total</span>
+              <span>${selectedVenta.total.toFixed(2)}</span>
+            </div>
+
+            <div className="modal-buttons">
+              <button className="btn-cancel" onClick={() => setSelectedVenta(null)}>
+                Cerrar
               </button>
             </div>
           </div>

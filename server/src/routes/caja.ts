@@ -55,7 +55,11 @@ router.get('/resumen', async (req: Request, res: Response) => {
           },
           anulada: false,
         },
-        include: { items: true },
+        include: {
+          items: { include: { lavador: { select: { nombre: true } } } },
+          socio: { select: { id: true, numero: true, nombre: true, apellido: true, telefono: true } },
+          cajero: { select: { nombre: true } },
+        },
       }),
       prisma.gasto.findMany({
         where: {
