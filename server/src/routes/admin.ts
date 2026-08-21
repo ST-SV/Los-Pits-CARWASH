@@ -576,6 +576,19 @@ router.get('/planilla', async (req: Request, res: Response) => {
         .filter((g: any) => g.categoria !== 'nomina' && new Date(g.fecha) >= q2Start && new Date(g.fecha) < q2End)
         .reduce((s: number, g: any) => s + g.monto, 0) + gastosFijosQ
     const nominaYaRegistrada = gastosMes.filter((g: any) => g.categoria === 'nomina').reduce((s: number, g: any) => s + g.monto, 0)
+    const nominaYaRegistradaQ1 = gastosMes
+      .filter((g: any) => g.categoria === 'nomina' && new Date(g.fecha) >= q1Start && new Date(g.fecha) < q1End)
+      .reduce((s: number, g: any) => s + g.monto, 0)
+    const nominaYaRegistradaQ2 = gastosMes
+      .filter((g: any) => g.categoria === 'nomina' && new Date(g.fecha) >= q2Start && new Date(g.fecha) < q2End)
+      .reduce((s: number, g: any) => s + g.monto, 0)
+
+    const gastosTotalQ1 = gastosMes
+      .filter((g: any) => new Date(g.fecha) >= q1Start && new Date(g.fecha) < q1End)
+      .reduce((s: number, g: any) => s + g.monto, 0)
+    const gastosTotalQ2 = gastosMes
+      .filter((g: any) => new Date(g.fecha) >= q2Start && new Date(g.fecha) < q2End)
+      .reduce((s: number, g: any) => s + g.monto, 0)
 
     const periodDef = [
       { key: 'Q1' as const, label: `Quincena 1 (1–15)`, start: q1Start, end: q1End },
@@ -698,17 +711,25 @@ router.get('/planilla', async (req: Request, res: Response) => {
           nombre: 'Quincena 1 (1–15)',
           ingresos: ingresosQ1,
           gastosOperativos: gastosOperativosQ1,
+          gastosFijos: gastosFijosQ,
           gastosFijosPagados: gastosFijosPagadosQ1,
+          gastosFijosPendientes: Math.max(0, gastosFijosQ - gastosFijosPagadosQ1),
+          nominaYaRegistrada: nominaYaRegistradaQ1,
           planilla: planillaQ1,
           balance: ingresosQ1 - gastosOperativosQ1 - planillaQ1,
+          flujoCaja: ingresosQ1 - gastosTotalQ1,
         },
         {
           nombre: 'Quincena 2 (16–fin)',
           ingresos: ingresosQ2,
           gastosOperativos: gastosOperativosQ2,
+          gastosFijos: gastosFijosQ,
           gastosFijosPagados: gastosFijosPagadosQ2,
+          gastosFijosPendientes: Math.max(0, gastosFijosQ - gastosFijosPagadosQ2),
+          nominaYaRegistrada: nominaYaRegistradaQ2,
           planilla: planillaQ2,
           balance: ingresosQ2 - gastosOperativosQ2 - planillaQ2,
+          flujoCaja: ingresosQ2 - gastosTotalQ2,
         },
       ],
       empleados: empleadosPlanilla,

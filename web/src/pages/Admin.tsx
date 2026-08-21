@@ -102,7 +102,18 @@ interface Planilla {
     balance: number
     flujoCaja: number
   }
-  quincenas: { nombre: string; ingresos: number; gastosOperativos: number; gastosFijosPagados: number; planilla: number; balance: number }[]
+  quincenas: {
+    nombre: string
+    ingresos: number
+    gastosOperativos: number
+    gastosFijos: number
+    gastosFijosPagados: number
+    gastosFijosPendientes: number
+    nominaYaRegistrada: number
+    planilla: number
+    balance: number
+    flujoCaja: number
+  }[]
   empleados: PlanillaEmpleado[]
   totalPlanilla: number
   gastosFijosDetalle: { id: string; descripcion: string; monto: number; pagadoEsteMes: number; estado: 'pagado' | 'pendiente'; ultimoPago: string | null }[]
@@ -1211,6 +1222,56 @@ export default function Admin() {
                   </span>
                 </div>
               </div>
+
+              {planilla.quincenas.map((q, i) => (
+                <div key={i}>
+                  <h2>Resumen {q.nombre}</h2>
+                  <div className="detail-card">
+                    <div className="dt-row">
+                      <span className="k">Ingresos</span>
+                      <span>${q.ingresos.toFixed(2)}</span>
+                    </div>
+                    <div className="dt-row">
+                      <span className="k">Gastos operativos</span>
+                      <span>${q.gastosOperativos.toFixed(2)}</span>
+                    </div>
+                    <div className="dt-row">
+                      <span className="k">— de los cuales gastos fijos</span>
+                      <span>${q.gastosFijos.toFixed(2)}</span>
+                    </div>
+                    <div className="dt-row">
+                      <span className="k">Nómina ya registrada como gasto</span>
+                      <span>${q.nominaYaRegistrada.toFixed(2)}</span>
+                    </div>
+                    <div className="dt-row">
+                      <span className="k">Planilla calculada (a abonar)</span>
+                      <span>${q.planilla.toFixed(2)}</span>
+                    </div>
+                    <div className="dt-row">
+                      <span className="k">Balance (utilidad, devengado)</span>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 700, color: q.balance >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                        ${q.balance.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="dt-row">
+                      <span className="k">— gastos fijos pagados</span>
+                      <span>${q.gastosFijosPagados.toFixed(2)}</span>
+                    </div>
+                    <div className="dt-row">
+                      <span className="k">— gastos fijos pendientes</span>
+                      <span style={{ color: q.gastosFijosPendientes > 0 ? 'var(--red)' : undefined }}>
+                        ${q.gastosFijosPendientes.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="dt-row">
+                      <span className="k">Flujo de caja (real, solo pagos registrados)</span>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 700, color: q.flujoCaja >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                        ${q.flujoCaja.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
 
               <div className="action-row" style={{ alignItems: 'center', justifyContent: 'space-between' }}>
                 <h2 style={{ margin: 0 }}>Gastos fijos</h2>
