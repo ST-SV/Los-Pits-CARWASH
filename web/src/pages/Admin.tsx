@@ -30,7 +30,7 @@ interface VentaItemDetalle {
   precio: number
   cantidad: number
   categoria: string
-  lavador?: { nombre: string } | null
+  lavador?: { id: string; nombre: string } | null
 }
 
 interface VentaDetalle {
@@ -44,7 +44,14 @@ interface VentaDetalle {
   anuladaPor?: string | null
   anuladaMotivo?: string | null
   items: VentaItemDetalle[]
-  socio?: { nombre: string; apellido?: string | null } | null
+  socio?: { id: string; nombre: string; apellido?: string | null } | null
+}
+
+interface SocioLite {
+  id: string
+  numero: number
+  nombre: string
+  apellido?: string | null
 }
 
 interface GastoDetalle {
@@ -330,6 +337,7 @@ export default function Admin() {
     setCierreDetalle(null)
     setEditCierre(null)
     setDeleteCierreMotivo(null)
+    setEditVenta(null)
     try {
       const res = await fetch(`/api/admin/cierre/${id}?adminPin=${encodeURIComponent(adminPin)}`)
       if (!res.ok) throw new Error('Error al cargar el detalle')
@@ -344,6 +352,79 @@ export default function Admin() {
 
   const [editCierre, setEditCierre] = useState<{ totalVentas: string; totalGastos: string; cerradoPor: string; motivo: string } | null>(null)
   const [deleteCierreMotivo, setDeleteCierreMotivo] = useState<string | null>(null)
+
+  const [socios, setSocios] = useState<SocioLite[]>([])
+  const [sociosLoaded, setSociosLoaded] = useState(false)
+  const [editVenta, setEditVenta] = useState<{
+    ventaId: string
+    numeroRecibo: string
+    socioId: string
+    metodoPago: string
+    referencia: string
+    motivo: string
+    items: { nombre: string; precio: number; cantidad: number; categoria: string; lavadorId: string | null }[]
+  } | null>(null)
+
+  const openEditVenta = (v: VentaDetalle) => {
+    if (!sociosLoaded) {
+      fetch('/api/socios')
+        .then(res => res.json())
+        .then(data => { setSocios(data); setSociosLoaded(true) })
+        .catch(() => {})
+    }
+    setEditVenta({
+      ventaId: v.id,
+      numeroRecibo: v.numeroRecibo,
+      socioId: v.socio?.id || '',
+      metodoPago: v.metodoPago,
+      referencia: v.referencia || '',
+      motivo: '',
+      items: v.items.map(it => ({
+        nombre: it.nombre,
+        precio: it.precio,
+        cantidad: it.cantidad,
+        categoria: it.categoria,
+        lavadorId: it.lavador?.id || null,
+      })),
+    })
+  }
+
+  const handleSaveEditVenta = async () => {
+    if (!editVenta) return
+    if (!editVenta.motivo) {
+      toast('Ingresa el motivo', 'error')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/admin/venta/${editVenta.ventaId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminPin,
+          numeroRecibo: editVenta.numeroRecibo,
+          metodoPago: editVenta.metodoPago,
+          referencia: editVenta.metodoPago === 'transferencia' ? editVenta.referencia : null,
+          socioId: editVenta.socioId || null,
+          motivo: editVenta.motivo,
+          items: editVenta.items,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Error al modificar la venta')
+      }
+      toast('Venta modificada', 'success')
+      setEditVenta(null)
+      if (cierreDetalle?.cierre) {
+        openCierreDetalle(cierreDetalle.cierre.id)
+      }
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   const handleEditCierre = async () => {
     if (!cierreDetalle?.cierre || !editCierre) return
@@ -426,6 +507,7 @@ export default function Admin() {
     setCierreDetalle(null)
     setEditCierre(null)
     setDeleteCierreMotivo(null)
+    setEditVenta(null)
     setDescuentoForm(null)
     setPeriodoDetalle(null)
     setAutosDetalle(null)
@@ -2207,7 +2289,7 @@ export default function Admin() {
       )}
 
       {(cierreDetalleLoading || cierreDetalle) && (
-        <div className="modal-overlay" onClick={() => { setCierreDetalle(null); setEditCierre(null); setDeleteCierreMotivo(null) }}>
+        <div className="modal-overlay" onClick={() => { setCierreDetalle(null); setEditCierre(null); setDeleteCierreMotivo(null); setEditVenta(null) }}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             {cierreDetalleLoading || !cierreDetalle ? (
               <p className="empty-state">Cargando...</p>
@@ -2343,80 +2425,175 @@ export default function Admin() {
                   </div>
                 )}
 
-                <h3 className="cat-subheader">Lavados vendidos</h3>
-                {aggregateItemsPorCategoria(cierreDetalle.ventas, 'servicio').length === 0 ? (
-                  <p className="empty-state">Sin lavados</p>
-                ) : (
-                  <div className="list">
-                    {aggregateItemsPorCategoria(cierreDetalle.ventas, 'servicio').map(s => (
-                      <div key={s.nombre} className="list-row static">
-                        <div className="main">
-                          <div className="title">{s.nombre}</div>
-                          <div className="sub">{s.cantidad} vendidos</div>
+                {cierreDetalle.cierre && editVenta && (
+                  <div className="detail-card">
+                    <h3 className="cat-subheader" style={{ marginTop: 0 }}>Editar venta · Recibo {editVenta.numeroRecibo}</h3>
+                    <p className="empty-state" style={{ textAlign: 'left', padding: 0, marginBottom: 12 }}>
+                      Solo puedes corregir el cliente, el método de pago y el nombre de los servicios/productos.
+                      El monto total de la venta (${editVenta.items.reduce((s, it) => s + it.precio * it.cantidad, 0).toFixed(2)}) no cambia.
+                    </p>
+                    <div className="form-group">
+                      <label>Cliente</label>
+                      <select
+                        value={editVenta.socioId}
+                        onChange={e => setEditVenta({ ...editVenta, socioId: e.target.value })}
+                      >
+                        <option value="">Particular</option>
+                        {socios.map(s => (
+                          <option key={s.id} value={s.id}>
+                            Nº{s.numero} · {s.nombre} {s.apellido || ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label>Método de pago</label>
+                      <select
+                        value={editVenta.metodoPago}
+                        onChange={e => setEditVenta({ ...editVenta, metodoPago: e.target.value })}
+                      >
+                        <option value="efectivo">Efectivo</option>
+                        <option value="tarjeta">Tarjeta</option>
+                        <option value="transferencia">Transferencia</option>
+                      </select>
+                    </div>
+                    {editVenta.metodoPago === 'transferencia' && (
+                      <div className="form-group">
+                        <label>Referencia</label>
+                        <input
+                          value={editVenta.referencia}
+                          onChange={e => setEditVenta({ ...editVenta, referencia: e.target.value })}
+                          placeholder="Número de transferencia"
+                        />
+                      </div>
+                    )}
+                    {editVenta.items.map((it, idx) => {
+                      const opciones = it.categoria === 'servicio' ? catalogo?.servicios : catalogo?.productos
+                      return (
+                        <div className="form-group" key={idx}>
+                          <label>{it.categoria === 'servicio' ? 'Servicio' : 'Producto'} ({it.cantidad}x · ${(it.precio * it.cantidad).toFixed(2)})</label>
+                          <select
+                            value={it.nombre}
+                            onChange={e => {
+                              const items = [...editVenta.items]
+                              items[idx] = { ...items[idx], nombre: e.target.value }
+                              setEditVenta({ ...editVenta, items })
+                            }}
+                          >
+                            <option value={it.nombre}>{it.nombre}</option>
+                            {opciones?.filter(o => o.nombre !== it.nombre).map(o => (
+                              <option key={o.id} value={o.nombre}>{o.nombre}</option>
+                            ))}
+                          </select>
                         </div>
-                        <div className="amount">${s.monto.toFixed(2)}</div>
-                      </div>
-                    ))}
-                    <div className="list-row static">
-                      <div className="main"><div className="title">Subtotal lavados</div></div>
-                      <div className="amount" style={{ fontWeight: 700 }}>
-                        ${aggregateItemsPorCategoria(cierreDetalle.ventas, 'servicio').reduce((s, x) => s + x.monto, 0).toFixed(2)}
-                      </div>
+                      )
+                    })}
+                    <div className="form-group">
+                      <label>Motivo *</label>
+                      <input
+                        value={editVenta.motivo}
+                        onChange={e => setEditVenta({ ...editVenta, motivo: e.target.value })}
+                        placeholder="Motivo de la corrección"
+                      />
+                    </div>
+                    <div className="modal-buttons">
+                      <button className="btn-cancel" onClick={() => setEditVenta(null)}>
+                        Cancelar
+                      </button>
+                      <button className="btn-confirm" onClick={handleSaveEditVenta} disabled={submitting}>
+                        {submitting ? 'Guardando...' : 'Guardar'}
+                      </button>
                     </div>
                   </div>
                 )}
 
-                <h3 className="cat-subheader">Cafetería / productos vendidos</h3>
-                {aggregateItemsPorCategoria(cierreDetalle.ventas, 'producto').length === 0 ? (
-                  <p className="empty-state">Sin productos</p>
-                ) : (
-                  <div className="list">
-                    {aggregateItemsPorCategoria(cierreDetalle.ventas, 'producto').map(p => (
-                      <div key={p.nombre} className="list-row static">
-                        <div className="main">
-                          <div className="title">{p.nombre}</div>
-                          <div className="sub">{p.cantidad} vendidos</div>
-                        </div>
-                        <div className="amount">${p.monto.toFixed(2)}</div>
-                      </div>
-                    ))}
-                    <div className="list-row static">
-                      <div className="main"><div className="title">Subtotal cafetería</div></div>
-                      <div className="amount" style={{ fontWeight: 700 }}>
-                        ${aggregateItemsPorCategoria(cierreDetalle.ventas, 'producto').reduce((s, x) => s + x.monto, 0).toFixed(2)}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <h3 className="cat-subheader">Recibos ({cierreDetalle.ventas.length})</h3>
-                {cierreDetalle.ventas.length === 0 ? (
-                  <p className="empty-state">Sin ventas</p>
-                ) : (
-                  <div className="list">
-                    {cierreDetalle.ventas.map(v => (
-                      <div key={v.id} className="list-row static">
-                        <div className="main">
-                          <div className="title">
-                            Recibo {v.numeroRecibo} {v.anulada && <span style={{ color: 'var(--red, #e33)' }}>(anulada)</span>}
-                          </div>
-                          <div className="sub">
-                            Cliente: {v.socio ? `${v.socio.nombre} ${v.socio.apellido || ''}`.trim() : 'Particular'} · {v.metodoPago}
-                            {v.referencia ? ` (ref. ${v.referencia})` : ''}
-                          </div>
-                          {v.items.map(it => (
-                            <div key={it.id} className="sub">
-                              {it.cantidad}x {it.nombre}{it.lavador ? ` · lavador: ${it.lavador.nombre}` : ''} — ${(it.precio * it.cantidad).toFixed(2)}
+                {!editVenta && (
+                  <>
+                    <h3 className="cat-subheader">Lavados vendidos</h3>
+                    {aggregateItemsPorCategoria(cierreDetalle.ventas, 'servicio').length === 0 ? (
+                      <p className="empty-state">Sin lavados</p>
+                    ) : (
+                      <div className="list">
+                        {aggregateItemsPorCategoria(cierreDetalle.ventas, 'servicio').map(s => (
+                          <div key={s.nombre} className="list-row static">
+                            <div className="main">
+                              <div className="title">{s.nombre}</div>
+                              <div className="sub">{s.cantidad} vendidos</div>
                             </div>
-                          ))}
-                          {v.anulada && v.anuladaMotivo && (
-                            <div className="sub">Motivo: {v.anuladaMotivo} · Por: {v.anuladaPor}</div>
-                          )}
+                            <div className="amount">${s.monto.toFixed(2)}</div>
+                          </div>
+                        ))}
+                        <div className="list-row static">
+                          <div className="main"><div className="title">Subtotal lavados</div></div>
+                          <div className="amount" style={{ fontWeight: 700 }}>
+                            ${aggregateItemsPorCategoria(cierreDetalle.ventas, 'servicio').reduce((s, x) => s + x.monto, 0).toFixed(2)}
+                          </div>
                         </div>
-                        <div className="amount">${v.total.toFixed(2)}</div>
                       </div>
-                    ))}
-                  </div>
+                    )}
+
+                    <h3 className="cat-subheader">Cafetería / productos vendidos</h3>
+                    {aggregateItemsPorCategoria(cierreDetalle.ventas, 'producto').length === 0 ? (
+                      <p className="empty-state">Sin productos</p>
+                    ) : (
+                      <div className="list">
+                        {aggregateItemsPorCategoria(cierreDetalle.ventas, 'producto').map(p => (
+                          <div key={p.nombre} className="list-row static">
+                            <div className="main">
+                              <div className="title">{p.nombre}</div>
+                              <div className="sub">{p.cantidad} vendidos</div>
+                            </div>
+                            <div className="amount">${p.monto.toFixed(2)}</div>
+                          </div>
+                        ))}
+                        <div className="list-row static">
+                          <div className="main"><div className="title">Subtotal cafetería</div></div>
+                          <div className="amount" style={{ fontWeight: 700 }}>
+                            ${aggregateItemsPorCategoria(cierreDetalle.ventas, 'producto').reduce((s, x) => s + x.monto, 0).toFixed(2)}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <h3 className="cat-subheader">Recibos ({cierreDetalle.ventas.length})</h3>
+                    {cierreDetalle.ventas.length === 0 ? (
+                      <p className="empty-state">Sin ventas</p>
+                    ) : (
+                      <div className="list">
+                        {cierreDetalle.ventas.map(v => (
+                          <div key={v.id} className="list-row static">
+                            <div className="main">
+                              <div className="title">
+                                Recibo {v.numeroRecibo} {v.anulada && <span style={{ color: 'var(--red, #e33)' }}>(anulada)</span>}
+                              </div>
+                              <div className="sub">
+                                Cliente: {v.socio ? `${v.socio.nombre} ${v.socio.apellido || ''}`.trim() : 'Particular'} · {v.metodoPago}
+                                {v.referencia ? ` (ref. ${v.referencia})` : ''}
+                              </div>
+                              {v.items.map(it => (
+                                <div key={it.id} className="sub">
+                                  {it.cantidad}x {it.nombre}{it.lavador ? ` · lavador: ${it.lavador.nombre}` : ''} — ${(it.precio * it.cantidad).toFixed(2)}
+                                </div>
+                              ))}
+                              {v.anulada && v.anuladaMotivo && (
+                                <div className="sub">Motivo: {v.anuladaMotivo} · Por: {v.anuladaPor}</div>
+                              )}
+                              {!v.anulada && (
+                                <button
+                                  className="btn-secondary"
+                                  style={{ marginTop: 6 }}
+                                  onClick={() => openEditVenta(v)}
+                                >
+                                  Corregir cliente/pago/servicio
+                                </button>
+                              )}
+                            </div>
+                            <div className="amount">${v.total.toFixed(2)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
 
                 <h3 className="cat-subheader">Gastos ({cierreDetalle.gastos.length})</h3>
@@ -2437,7 +2614,7 @@ export default function Admin() {
                 )}
 
                 <div className="modal-buttons">
-                  <button className="btn-cancel" onClick={() => { setCierreDetalle(null); setEditCierre(null); setDeleteCierreMotivo(null) }}>
+                  <button className="btn-cancel" onClick={() => { setCierreDetalle(null); setEditCierre(null); setDeleteCierreMotivo(null); setEditVenta(null) }}>
                     Cerrar
                   </button>
                 </div>

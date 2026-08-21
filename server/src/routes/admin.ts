@@ -90,8 +90,8 @@ router.get('/cierre/:id', async (req: Request, res: Response) => {
       prisma.venta.findMany({
         where: { fecha: { gte: desde, lt: hasta } },
         include: {
-          items: { include: { lavador: { select: { nombre: true } } } },
-          socio: { select: { nombre: true, apellido: true } },
+          items: { include: { lavador: { select: { id: true, nombre: true } } } },
+          socio: { select: { id: true, nombre: true, apellido: true } },
         },
         orderBy: { fecha: 'asc' },
       }),
@@ -1708,7 +1708,7 @@ router.get('/auditoria/export', async (req: Request, res: Response) => {
 router.put('/venta/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    const { adminPin, numeroRecibo, referencia, metodoPago, items, motivo } = req.body
+    const { adminPin, numeroRecibo, referencia, metodoPago, items, motivo, socioId } = req.body
 
     if (!adminPin || !(await requireAdminPin(adminPin as string))) {
       return res.status(401).json({ error: 'Invalid admin PIN' })
@@ -1720,7 +1720,7 @@ router.put('/venta/:id', async (req: Request, res: Response) => {
 
     const venta = await prisma.venta.findUnique({
       where: { id },
-      include: { items: true },
+      include: { items: true, socio: { select: { nombre: true, apellido: true } } },
     })
 
     if (!venta) {
@@ -1737,6 +1737,7 @@ router.put('/venta/:id', async (req: Request, res: Response) => {
       referencia: venta.referencia,
       metodoPago: venta.metodoPago,
       total: venta.total,
+      cliente: venta.socio ? `${venta.socio.nombre} ${venta.socio.apellido || ''}`.trim() : 'Particular',
     }
 
     // Calculate new total, preserving the venta's original discount
@@ -1750,6 +1751,7 @@ router.put('/venta/:id', async (req: Request, res: Response) => {
         numeroRecibo: numeroRecibo || venta.numeroRecibo,
         referencia: referencia ?? venta.referencia,
         metodoPago: metodoPago || venta.metodoPago,
+        socioId: socioId !== undefined ? (socioId || null) : venta.socioId,
         total: newTotal,
         ultimoMotivoEdicion: motivo,
         items: {
@@ -1763,11 +1765,12 @@ router.put('/venta/:id', async (req: Request, res: Response) => {
           })),
         },
       },
-      include: { items: true },
+      include: { items: true, socio: { select: { nombre: true, apellido: true } } },
     })
 
     // Log audit
-    const changeDetail = `Recibo ${before.numeroRecibo || '—'}→${updated.numeroRecibo || '—'} · $${before.total.toFixed(2)}→$${newTotal.toFixed(2)} · ${before.metodoPago}→${updated.metodoPago} · Motivo: ${motivo}`
+    const afterCliente = updated.socio ? `${updated.socio.nombre} ${updated.socio.apellido || ''}`.trim() : 'Particular'
+    const changeDetail = `Recibo ${before.numeroRecibo || '—'}→${updated.numeroRecibo || '—'} · $${before.total.toFixed(2)}→$${newTotal.toFixed(2)} · ${before.metodoPago}→${updated.metodoPago} · Cliente: ${before.cliente}→${afterCliente} · Motivo: ${motivo}`
 
     await prisma.auditLog.create({
       data: {
