@@ -57,7 +57,7 @@ export default function Vender() {
     fetch('/api/vender/catalogo')
       .then(r => r.json())
       .then(cat => setCatalogo(cat))
-      .catch(() => {})
+      .catch(() => toast('No se pudo actualizar el catálogo. Revisá tu conexión.', 'error'))
   }
 
   useEffect(() => {
@@ -72,7 +72,10 @@ export default function Vender() {
         setSocios(socs)
         setLoading(false)
       })
-      .catch(() => setLoading(false))
+      .catch(() => {
+        setLoading(false)
+        toast('No se pudieron cargar los datos de venta. Revisá tu conexión.', 'error')
+      })
   }, [])
 
   const lavadores = empleados.filter(e => e.role === 'lavador')

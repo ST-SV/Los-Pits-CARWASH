@@ -130,52 +130,55 @@ router.post('/venta', async (req: Request, res: Response) => {
     const vuelto = metodoPago === 'efectivo' ? Math.max(0, montoRecibido - totalFinal) : null
 
     // Create venta
-    const venta = await prisma.venta.create({
-      data: {
-        numeroRecibo,
-        total: totalFinal,
-        descuentoMonto: descuentoAplicado,
-        descuentoMotivo: descuentoAplicado > 0 ? String(descuentoMotivo).trim() : null,
-        metodoPago,
-        referencia: metodoPago === 'transferencia' ? referencia : null,
-        montoRecibido: metodoPago === 'efectivo' ? montoRecibido : null,
-        vuelto,
-        banco: metodoPago === 'tarjeta' ? banco : null,
-        numeroCupon: metodoPago === 'tarjeta' ? numeroCupon : null,
-        comprobanteFoto: metodoPago === 'transferencia' ? comprobanteFoto || null : null,
-        cajeroId: empleadoId,
-        socioId: socioId || null,
-        items: {
-          create: ventaItems,
-        },
-      },
-      include: {
-        items: true,
-        cajero: true,
-      },
-    })
-
-    // Log audit
     const itemsResumen = resumenParts.join(', ')
-    await prisma.auditLog.create({
-      data: {
-        actor: empleado.nombre,
-        accion: 'Venta registrada',
-        detalle: `Recibo ${numeroRecibo} · $${total.toFixed(2)} · ${metodoPago} · ${itemsResumen}`,
-        actorId: empleadoId,
-      },
-    })
+    const venta = await prisma.$transaction(async (tx) => {
+      const venta = await tx.venta.create({
+        data: {
+          numeroRecibo,
+          total: totalFinal,
+          descuentoMonto: descuentoAplicado,
+          descuentoMotivo: descuentoAplicado > 0 ? String(descuentoMotivo).trim() : null,
+          metodoPago,
+          referencia: metodoPago === 'transferencia' ? referencia : null,
+          montoRecibido: metodoPago === 'efectivo' ? montoRecibido : null,
+          vuelto,
+          banco: metodoPago === 'tarjeta' ? banco : null,
+          numeroCupon: metodoPago === 'tarjeta' ? numeroCupon : null,
+          comprobanteFoto: metodoPago === 'transferencia' ? comprobanteFoto || null : null,
+          cajeroId: empleadoId,
+          socioId: socioId || null,
+          items: {
+            create: ventaItems,
+          },
+        },
+        include: {
+          items: true,
+          cajero: true,
+        },
+      })
 
-    // Descontar stock de los productos vendidos (clamp a 0, no afecta productos sin control de stock)
-    for (const item of items) {
-      if (item.catalogoProductoId) {
-        await prisma.$executeRaw`
-          UPDATE "CatalogoProducto"
-          SET stock = GREATEST(stock - ${item.cantidad}, 0)
-          WHERE id = ${item.catalogoProductoId} AND stock IS NOT NULL
-        `
+      await tx.auditLog.create({
+        data: {
+          actor: empleado.nombre,
+          accion: 'Venta registrada',
+          detalle: `Recibo ${numeroRecibo} · $${totalFinal.toFixed(2)} · ${metodoPago} · ${itemsResumen}`,
+          actorId: empleadoId,
+        },
+      })
+
+      // Descontar stock de los productos vendidos (clamp a 0, no afecta productos sin control de stock)
+      for (const item of items) {
+        if (item.catalogoProductoId) {
+          await tx.$executeRaw`
+            UPDATE "CatalogoProducto"
+            SET stock = GREATEST(stock - ${item.cantidad}, 0)
+            WHERE id = ${item.catalogoProductoId} AND stock IS NOT NULL
+          `
+        }
       }
-    }
+
+      return venta
+    })
 
     res.json(venta)
   } catch (error) {
@@ -206,10 +209,15 @@ router.get('/cuentas', async (req: Request, res: Response) => {
 // POST crear cuenta abierta
 router.post('/cuentas', async (req: Request, res: Response) => {
   try {
-    const { etiqueta, items, socioId } = req.body
+    const { etiqueta, items, socioId, cajeroId, cajeroPin } = req.body
 
-    if (!etiqueta || !items || !Array.isArray(items)) {
+    if (!etiqueta || !items || !Array.isArray(items) || !cajeroId || !cajeroPin) {
       return res.status(400).json({ error: 'Missing required fields' })
+    }
+
+    const cajero = await prisma.empleado.findUnique({ where: { id: cajeroId } })
+    if (!cajero || !cajero.pinHash || !(await verifyPin(cajeroPin, cajero.pinHash))) {
+      return res.status(401).json({ error: 'Invalid PIN' })
     }
 
     const cuenta = await prisma.cuentaAbierta.create({
@@ -233,6 +241,15 @@ router.post('/cuentas', async (req: Request, res: Response) => {
       },
     })
 
+    await prisma.auditLog.create({
+      data: {
+        actor: cajero.nombre,
+        actorId: cajeroId,
+        accion: 'Cuenta abierta creada',
+        detalle: `${etiqueta} · ${items.length} item(s)`,
+      },
+    })
+
     res.json(cuenta)
   } catch (error) {
     console.error('Error creating cuenta:', error)
@@ -244,7 +261,16 @@ router.post('/cuentas', async (req: Request, res: Response) => {
 router.put('/cuentas/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params
-    const { items } = req.body
+    const { items, cajeroId, cajeroPin } = req.body
+
+    if (!items || !Array.isArray(items) || !cajeroId || !cajeroPin) {
+      return res.status(400).json({ error: 'Missing required fields' })
+    }
+
+    const cajero = await prisma.empleado.findUnique({ where: { id: cajeroId } })
+    if (!cajero || !cajero.pinHash || !(await verifyPin(cajeroPin, cajero.pinHash))) {
+      return res.status(401).json({ error: 'Invalid PIN' })
+    }
 
     const cuenta = await prisma.cuentaAbierta.update({
       where: { id },
@@ -267,6 +293,15 @@ router.put('/cuentas/:id', async (req: Request, res: Response) => {
       },
     })
 
+    await prisma.auditLog.create({
+      data: {
+        actor: cajero.nombre,
+        actorId: cajeroId,
+        accion: 'Cuenta abierta editada',
+        detalle: `${cuenta.etiqueta} · ${items.length} item(s)`,
+      },
+    })
+
     res.json(cuenta)
   } catch (error) {
     console.error('Error updating cuenta:', error)
@@ -278,9 +313,33 @@ router.put('/cuentas/:id', async (req: Request, res: Response) => {
 router.delete('/cuentas/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params
+    const { cajeroId, cajeroPin } = req.body
+
+    if (!cajeroId || !cajeroPin) {
+      return res.status(400).json({ error: 'Missing required fields' })
+    }
+
+    const cajero = await prisma.empleado.findUnique({ where: { id: cajeroId } })
+    if (!cajero || !cajero.pinHash || !(await verifyPin(cajeroPin, cajero.pinHash))) {
+      return res.status(401).json({ error: 'Invalid PIN' })
+    }
+
+    const cuenta = await prisma.cuentaAbierta.findUnique({ where: { id } })
+    if (!cuenta) {
+      return res.status(404).json({ error: 'Cuenta not found' })
+    }
 
     await prisma.cuentaAbierta.delete({
       where: { id },
+    })
+
+    await prisma.auditLog.create({
+      data: {
+        actor: cajero.nombre,
+        actorId: cajeroId,
+        accion: 'Cuenta abierta eliminada',
+        detalle: cuenta.etiqueta,
+      },
     })
 
     res.json({ success: true })
@@ -339,47 +398,49 @@ router.post('/cuentas/:id/checkout', async (req: Request, res: Response) => {
 
     const vuelto = metodoPago === 'efectivo' ? Math.max(0, montoRecibido - total) : null
 
-    // Create venta from cuenta
-    const venta = await prisma.venta.create({
-      data: {
-        numeroRecibo,
-        referencia: metodoPago === 'transferencia' ? referencia : null,
-        montoRecibido: metodoPago === 'efectivo' ? montoRecibido : null,
-        vuelto,
-        banco: metodoPago === 'tarjeta' ? banco : null,
-        numeroCupon: metodoPago === 'tarjeta' ? numeroCupon : null,
-        comprobanteFoto: metodoPago === 'transferencia' ? comprobanteFoto || null : null,
-        total,
-        metodoPago,
-        cajeroId,
-        socioId: cuenta.socioId,
-        items: {
-          create: cuenta.items.map((item: any) => ({
-            nombre: item.nombre,
-            precio: item.precio,
-            cantidad: item.cantidad,
-            categoria: item.categoria,
-            lavadorId: item.lavadorId || null,
-          })),
+    // Create venta from cuenta, delete cuenta, and log audit atomically
+    const venta = await prisma.$transaction(async (tx) => {
+      const venta = await tx.venta.create({
+        data: {
+          numeroRecibo,
+          referencia: metodoPago === 'transferencia' ? referencia : null,
+          montoRecibido: metodoPago === 'efectivo' ? montoRecibido : null,
+          vuelto,
+          banco: metodoPago === 'tarjeta' ? banco : null,
+          numeroCupon: metodoPago === 'tarjeta' ? numeroCupon : null,
+          comprobanteFoto: metodoPago === 'transferencia' ? comprobanteFoto || null : null,
+          total,
+          metodoPago,
+          cajeroId,
+          socioId: cuenta.socioId,
+          items: {
+            create: cuenta.items.map((item: any) => ({
+              nombre: item.nombre,
+              precio: item.precio,
+              cantidad: item.cantidad,
+              categoria: item.categoria,
+              lavadorId: item.lavadorId || null,
+            })),
+          },
         },
-      },
-      include: { items: true },
-    })
+        include: { items: true },
+      })
 
-    // Delete cuenta
-    await prisma.cuentaAbierta.delete({
-      where: { id },
-    })
+      await tx.cuentaAbierta.delete({
+        where: { id },
+      })
 
-    // Log audit
-    const itemsResumen = venta.items.map((it: any) => `${it.cantidad}x ${it.nombre}`).join(', ')
-    await prisma.auditLog.create({
-      data: {
-        actor: cajero.nombre,
-        accion: 'Venta registrada (desde cuenta abierta)',
-        detalle: `Recibo ${numeroRecibo} · $${total.toFixed(2)} · ${metodoPago} · ${itemsResumen}`,
-        actorId: cajeroId,
-      },
+      const itemsResumen = venta.items.map((it: any) => `${it.cantidad}x ${it.nombre}`).join(', ')
+      await tx.auditLog.create({
+        data: {
+          actor: cajero.nombre,
+          accion: 'Venta registrada (desde cuenta abierta)',
+          detalle: `Recibo ${numeroRecibo} · $${total.toFixed(2)} · ${metodoPago} · ${itemsResumen}`,
+          actorId: cajeroId,
+        },
+      })
+
+      return venta
     })
 
     res.json(venta)

@@ -369,8 +369,8 @@ router.post('/nomina-pago', async (req: Request, res: Response) => {
     const actor = await resolveAdminActor(adminPin)
     const montoPago = Number(monto)
 
-    const [nominaPago, gasto] = await prisma.$transaction([
-      prisma.nominaPago.create({
+    const { nominaPago, gasto } = await prisma.$transaction(async (tx) => {
+      const nominaPago = await tx.nominaPago.create({
         data: {
           empleadoId,
           periodoKey,
@@ -378,8 +378,8 @@ router.post('/nomina-pago', async (req: Request, res: Response) => {
           pagadoPor: actor?.nombre || 'Administrador',
           pagadoPorId: actor?.empleadoId,
         },
-      }),
-      prisma.gasto.create({
+      })
+      const gasto = await tx.gasto.create({
         data: {
           descripcion: `Nómina ${periodoKey} · ${empleado.nombre} ${empleado.apellido || ''}`.trim(),
           monto: montoPago,
@@ -388,9 +388,11 @@ router.post('/nomina-pago', async (req: Request, res: Response) => {
           fechaPago: new Date(),
           registradoPor: actor?.nombre || 'Administrador',
           registradoPorId: actor?.empleadoId,
+          nominaPagoId: nominaPago.id,
         },
-      }),
-    ])
+      })
+      return { nominaPago, gasto }
+    })
 
     await prisma.auditLog.create({
       data: {
@@ -420,13 +422,9 @@ router.delete('/nomina-pago/:id', async (req: Request, res: Response) => {
     if (!nominaPago) {
       return res.status(404).json({ error: 'Pago de nómina no encontrado' })
     }
-    // Busca el Gasto vinculado creado en el mismo instante del pago (misma categoria/monto/fechaPago)
-    const gastoVinculado = await prisma.gasto.findFirst({
-      where: {
-        categoria: 'nomina',
-        monto: nominaPago.monto,
-        fechaPago: nominaPago.fechaPago,
-      },
+    // Busca el Gasto vinculado por la relación nominaPagoId (no por monto/fecha, que pueden no coincidir)
+    const gastoVinculado = await prisma.gasto.findUnique({
+      where: { nominaPagoId: id },
     })
     const actor = await resolveAdminActor(adminPin)
     await prisma.$transaction([
@@ -1315,6 +1313,10 @@ router.post('/empleados', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'El PIN es requerido para socios' })
     }
 
+    if ([sueldoMensual, comisionPercent, comisionThreshold].some((v) => v !== undefined && v !== null && (typeof v !== 'number' || v < 0))) {
+      return res.status(400).json({ error: 'Sueldo y comisión no pueden ser negativos' })
+    }
+
     const empleado = await prisma.empleado.create({
       data: {
         nombre,
@@ -1359,6 +1361,10 @@ router.put('/empleados/:id', async (req: Request, res: Response) => {
 
     if (!adminPin || !(await requireAdminPin(adminPin as string))) {
       return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+
+    if ([sueldoMensual, comisionPercent, comisionThreshold].some((v) => v !== undefined && v !== null && (typeof v !== 'number' || v < 0))) {
+      return res.status(400).json({ error: 'Sueldo y comisión no pueden ser negativos' })
     }
 
     const empleado = await prisma.empleado.update({
@@ -1494,6 +1500,10 @@ router.post('/catalogo/servicio', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid admin PIN' })
     }
 
+    if (typeof precio !== 'number' || precio < 0) {
+      return res.status(400).json({ error: 'El precio no puede ser negativo' })
+    }
+
     const servicio = await prisma.catalogoServicio.create({
       data: { nombre, precio, categoria: categoria || 'General' },
     })
@@ -1521,6 +1531,10 @@ router.put('/catalogo/servicio/:id', async (req: Request, res: Response) => {
 
     if (!adminPin || !(await requireAdminPin(adminPin as string))) {
       return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+
+    if (typeof precio !== 'number' || precio < 0) {
+      return res.status(400).json({ error: 'El precio no puede ser negativo' })
     }
 
     const before = await prisma.catalogoServicio.findUnique({ where: { id } })
@@ -1586,12 +1600,20 @@ router.post('/catalogo/producto', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid admin PIN' })
     }
 
+    const stockNum = stock === null || stock === undefined || stock === '' ? null : Number(stock)
+    if (typeof precio !== 'number' || precio < 0) {
+      return res.status(400).json({ error: 'El precio no puede ser negativo' })
+    }
+    if (stockNum !== null && (isNaN(stockNum) || stockNum < 0)) {
+      return res.status(400).json({ error: 'El stock no puede ser negativo' })
+    }
+
     const producto = await prisma.catalogoProducto.create({
       data: {
         nombre,
         precio,
         categoria: categoria || 'Otros',
-        stock: stock === null || stock === undefined || stock === '' ? null : Number(stock),
+        stock: stockNum,
       },
     })
 
@@ -1620,6 +1642,14 @@ router.put('/catalogo/producto/:id', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid admin PIN' })
     }
 
+    const stockNum = stock === null || stock === undefined || stock === '' ? null : Number(stock)
+    if (typeof precio !== 'number' || precio < 0) {
+      return res.status(400).json({ error: 'El precio no puede ser negativo' })
+    }
+    if (stockNum !== null && (isNaN(stockNum) || stockNum < 0)) {
+      return res.status(400).json({ error: 'El stock no puede ser negativo' })
+    }
+
     const before = await prisma.catalogoProducto.findUnique({ where: { id } })
     const producto = await prisma.catalogoProducto.update({
       where: { id },
@@ -1627,7 +1657,7 @@ router.put('/catalogo/producto/:id', async (req: Request, res: Response) => {
         nombre,
         precio,
         categoria: categoria || 'Otros',
-        stock: stock === null || stock === undefined || stock === '' ? null : Number(stock),
+        stock: stockNum,
       },
     })
 
@@ -1818,8 +1848,9 @@ router.put('/venta/:id', async (req: Request, res: Response) => {
       total: venta.total,
     }
 
-    // Calculate new total
-    const newTotal = items.reduce((sum: number, item: any) => sum + item.precio * item.cantidad, 0)
+    // Calculate new total, preserving the venta's original discount
+    const newSubtotal = items.reduce((sum: number, item: any) => sum + item.precio * item.cantidad, 0)
+    const newTotal = Math.max(0, newSubtotal - (venta.descuentoMonto || 0))
 
     // Update venta
     const updated = await prisma.venta.update({

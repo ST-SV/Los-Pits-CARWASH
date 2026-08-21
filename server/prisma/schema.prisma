@@ -252,6 +252,8 @@ model Gasto {
   fechaPago       DateTime? // cuando se marcó como pagado (si aplica)
   gastoFijoId     String?   // si este gasto es el pago real de un GastoFijo
   gastoFijo       GastoFijo? @relation(fields: [gastoFijoId], references: [id], onDelete: SetNull)
+  nominaPagoId    String?   @unique // si este gasto es el registro de un NominaPago
+  nominaPago      NominaPago? @relation(fields: [nominaPagoId], references: [id], onDelete: SetNull)
 
   @@index([fecha])
   @@index([categoria])
@@ -280,6 +282,7 @@ model NominaPago {
   pagadoPor     String?
   pagadoPorId   String?
   createdAt     DateTime @default(now())
+  gasto         Gasto?
 
   @@index([empleadoId])
   @@index([periodoKey])

@@ -808,11 +808,12 @@ export default function Admin() {
   }
 
   const loadTab = (t: SubTab) => {
+    const onLoadError = () => toast('No se pudo cargar la información. Revisá tu conexión.', 'error')
     if (t === 'historial') {
       fetch(`/api/admin/historial?adminPin=${encodeURIComponent(adminPin)}`)
         .then(r => r.json())
         .then(setHistorial)
-        .catch(() => {})
+        .catch(onLoadError)
     } else if (t === 'contabilidad') {
       loadPlanilla(mesPlanilla)
       loadGastosFijos()
@@ -820,27 +821,27 @@ export default function Admin() {
       fetch(`/api/admin/duenos?adminPin=${encodeURIComponent(adminPin)}`)
         .then(r => r.json())
         .then(setDuenos)
-        .catch(() => {})
+        .catch(onLoadError)
     } else if (t === 'empleados') {
       fetch(`/api/admin/empleados?adminPin=${encodeURIComponent(adminPin)}`)
         .then(r => r.json())
         .then(setEmpleados)
-        .catch(() => {})
+        .catch(onLoadError)
     } else if (t === 'config') {
       fetch(`/api/admin/empleados?adminPin=${encodeURIComponent(adminPin)}`)
         .then(r => r.json())
         .then(setEmpleados)
-        .catch(() => {})
+        .catch(onLoadError)
     } else if (t === 'catalogo') {
       fetch(`/api/admin/catalogo?adminPin=${encodeURIComponent(adminPin)}`)
         .then(r => r.json())
         .then(setCatalogo)
-        .catch(() => {})
+        .catch(onLoadError)
     } else if (t === 'auditoria') {
       fetch(`/api/admin/auditoria?adminPin=${encodeURIComponent(adminPin)}`)
         .then(r => r.json())
         .then(setAuditoria)
-        .catch(() => {})
+        .catch(onLoadError)
     } else if (t === 'horarios') {
       fetch(`/api/admin/horarios?adminPin=${encodeURIComponent(adminPin)}`)
         .then(r => r.json())
@@ -848,7 +849,7 @@ export default function Admin() {
           setHorariosData(d)
           setHorarioNegocioForm(d.horarioNegocio)
         })
-        .catch(() => {})
+        .catch(onLoadError)
     }
   }
 
@@ -1070,6 +1071,10 @@ export default function Admin() {
       toast('Nombre y rol son obligatorios', 'error')
       return
     }
+    if ([empForm.sueldoMensual, empForm.comisionPercent, empForm.comisionThreshold].some(v => v !== undefined && v !== null && v < 0)) {
+      toast('Sueldo y comisión no pueden ser negativos', 'error')
+      return
+    }
     setSubmitting(true)
     try {
       const body: any = { adminPin, ...empForm }
@@ -1116,6 +1121,14 @@ export default function Admin() {
   const handleSaveCat = async () => {
     if (!catForm || !catForm.nombre || !catForm.precio) {
       toast('Completa nombre y precio', 'error')
+      return
+    }
+    if (parseFloat(catForm.precio) < 0) {
+      toast('El precio no puede ser negativo', 'error')
+      return
+    }
+    if (catForm.tipo === 'producto' && catForm.stock.trim() !== '' && Number(catForm.stock) < 0) {
+      toast('El stock no puede ser negativo', 'error')
       return
     }
     setSubmitting(true)

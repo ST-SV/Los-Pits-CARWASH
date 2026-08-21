@@ -48,26 +48,37 @@ router.post('/', async (req: Request, res: Response) => {
       return res.status(500).json({ error: 'App not initialized' })
     }
 
-    // Create socio with incrementing numero
-    const allSocios = await prisma.socio.findMany({ orderBy: { numero: 'desc' } })
-    const nextNumero = (allSocios[0]?.numero ?? 0) + 1
-
-    const socio = await prisma.socio.create({
-      data: {
-        numero: nextNumero,
-        nombre,
-        apellido,
-        email,
-        telefono,
-        contacto,
-        autos: autos
-          ? {
-              create: autos.map((modelo: string) => ({ modelo })),
-            }
-          : undefined,
-      },
-      include: { autos: true },
-    })
+    // Create socio with incrementing numero. Reintenta si dos altas concurrentes
+    // calculan el mismo próximo número (choque en la restricción @unique de numero).
+    let socio
+    for (let attempt = 0; ; attempt++) {
+      const ultimo = await prisma.socio.findFirst({ orderBy: { numero: 'desc' } })
+      const nextNumero = (ultimo?.numero ?? 0) + 1
+      try {
+        socio = await prisma.socio.create({
+          data: {
+            numero: nextNumero,
+            nombre,
+            apellido,
+            email,
+            telefono,
+            contacto,
+            autos: autos
+              ? {
+                  create: autos.map((modelo: string) => ({ modelo })),
+                }
+              : undefined,
+          },
+          include: { autos: true },
+        })
+        break
+      } catch (err: any) {
+        if (err?.code === 'P2002' && attempt < 5) {
+          continue
+        }
+        throw err
+      }
+    }
 
     // Log audit
     await prisma.auditLog.create({
