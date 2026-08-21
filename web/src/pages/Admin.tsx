@@ -88,6 +88,24 @@ interface PlanillaEmpleado {
   periodos: PlanillaPeriodo[]
 }
 
+interface QuincenaCierre {
+  id: string
+  periodoKey: string
+  nombre: string
+  fechaInicio: string
+  fechaFin: string
+  ingresos: number
+  gastosOperativos: number
+  gastosFijos: number
+  gastosFijosPagados: number
+  gastosFijosPendientes: number
+  nominaYaRegistrada: number
+  planilla: number
+  balance: number
+  flujoCaja: number
+  createdAt: string
+}
+
 interface Planilla {
   mes: string
   hoy: { ventas: number; gastos: number; neto: number }
@@ -250,6 +268,7 @@ export default function Admin() {
   const [cierreFiltro, setCierreFiltro] = useState<'todos' | 'dia' | 'semana' | 'quincena' | 'mes' | 'fecha'>('todos')
   const [cierreFechaBusqueda, setCierreFechaBusqueda] = useState('')
   const [planilla, setPlanilla] = useState<Planilla | null>(null)
+  const [historialQuincenas, setHistorialQuincenas] = useState<QuincenaCierre[]>([])
   const [mesPlanilla, setMesPlanilla] = useState(() => {
     const now = new Date()
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
@@ -409,6 +428,10 @@ export default function Admin() {
     fetch(`/api/admin/planilla?adminPin=${encodeURIComponent(adminPin)}&mes=${encodeURIComponent(mes)}`)
       .then(r => r.json())
       .then(setPlanilla)
+      .catch(() => {})
+    fetch(`/api/admin/planilla/historial-quincenas?adminPin=${encodeURIComponent(adminPin)}`)
+      .then(r => r.json())
+      .then(setHistorialQuincenas)
       .catch(() => {})
   }
 
@@ -1272,6 +1295,27 @@ export default function Admin() {
                   </div>
                 </div>
               ))}
+
+              {historialQuincenas.length > 0 && (
+                <div>
+                  <h2>Historial de quincenas cerradas</h2>
+                  <div className="detail-card">
+                    {historialQuincenas.map(q => (
+                      <div key={q.id} className="dt-row">
+                        <span className="k">
+                          {q.nombre}
+                          <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 400 }}>
+                            Ingresos ${q.ingresos.toFixed(2)} · Gastos ${q.gastosOperativos.toFixed(2)} · Planilla ${q.planilla.toFixed(2)} · Flujo ${q.flujoCaja.toFixed(2)}
+                          </div>
+                        </span>
+                        <span style={{ fontFamily: 'monospace', fontWeight: 700, color: q.balance >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                          ${q.balance.toFixed(2)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="action-row" style={{ alignItems: 'center', justifyContent: 'space-between' }}>
                 <h2 style={{ margin: 0 }}>Gastos fijos</h2>

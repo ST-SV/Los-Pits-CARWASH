@@ -299,6 +299,26 @@ model CierreDeCaja {
   @@index([fecha])
 }
 
+model QuincenaCierre {
+  id                    String   @id @default(cuid())
+  periodoKey            String   @unique // "2026-08-Q1" | "2026-08-Q2"
+  nombre                String   // "Quincena 1 (1–15) · Agosto 2026"
+  fechaInicio           DateTime
+  fechaFin              DateTime
+  ingresos              Float
+  gastosOperativos      Float
+  gastosFijos           Float
+  gastosFijosPagados    Float
+  gastosFijosPendientes Float
+  nominaYaRegistrada    Float
+  planilla              Float
+  balance               Float
+  flujoCaja             Float
+  createdAt             DateTime @default(now())
+
+  @@index([fechaInicio])
+}
+
 model AuditLog {
   id      String    @id @default(cuid())
   fecha   DateTime  @default(now())

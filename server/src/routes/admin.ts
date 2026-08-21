@@ -505,16 +505,12 @@ router.delete('/reset-datos-prueba', async (req: Request, res: Response) => {
 
 
 // PLANILLA: nómina quincenal/mensual + balance del mes en curso
-router.get('/planilla', async (req: Request, res: Response) => {
-  try {
-    const { adminPin, mes } = req.query
+const MESES_ES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+]
 
-    if (!adminPin || !(await requireAdminPin(adminPin as string))) {
-      return res.status(401).json({ error: 'Invalid admin PIN' })
-    }
-
-    const now = new Date()
-    const mesStr = (mes as string) && /^\d{4}-\d{2}$/.test(mes as string) ? (mes as string) : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+const computePlanillaData = async (mesStr: string) => {
     const [year, month] = mesStr.split('-').map(Number)
 
     const monthStart = esDate(year, month - 1, 1)
@@ -690,7 +686,7 @@ router.get('/planilla', async (req: Request, res: Response) => {
       }
     })
 
-    res.json({
+    return {
       mes: mesStr,
       hoy: { ventas: hoyVentas, gastos: hoyGastos, neto: hoyVentas - hoyGastos },
       resumenMensual: {
@@ -753,10 +749,99 @@ router.get('/planilla', async (req: Request, res: Response) => {
         ventasQ1: ingresosQ1,
         ventasQ2: ingresosQ2,
       },
-    })
+    }
+}
+
+// Calcula la quincena inmediatamente anterior a (mesStr, quincena) dada.
+const periodoQuincenaAnterior = (mesStr: string, quincena: 'Q1' | 'Q2'): { mesStr: string; quincena: 'Q1' | 'Q2' } => {
+  if (quincena === 'Q2') return { mesStr, quincena: 'Q1' }
+  const [year, month] = mesStr.split('-').map(Number)
+  const prevMonthDate = esDate(year, month - 2, 1)
+  const prevMesStr = `${prevMonthDate.getUTCFullYear()}-${String(prevMonthDate.getUTCMonth() + 1).padStart(2, '0')}`
+  return { mesStr: prevMesStr, quincena: 'Q2' }
+}
+
+// Archiva (guarda un snapshot permanente de) toda quincena ya finalizada que aún no
+// tenga un cierre guardado. Se ejecuta cada vez que se abre la pestaña de Contabilidad,
+// así el sistema "se guarda solo" sin necesitar un cron externo. No borra ni oculta
+// ventas/gastos reales — solo guarda el resumen calculado de cada quincena cerrada.
+const archivarQuincenasVencidas = async () => {
+  const now = esDayBucket()
+  const currentMesStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
+  let cursor = periodoQuincenaAnterior(currentMesStr, now.getUTCDate() <= 15 ? 'Q1' : 'Q2')
+
+  for (let i = 0; i < 6; i++) {
+    const periodoKey = `${cursor.mesStr}-${cursor.quincena}`
+    const existente = await prisma.quincenaCierre.findUnique({ where: { periodoKey } })
+    if (existente) break // se asume que todo lo anterior a esto ya está archivado
+
+    const data = await computePlanillaData(cursor.mesStr)
+    const q = cursor.quincena === 'Q1' ? data.quincenas[0] : data.quincenas[1]
+    const [year, month] = cursor.mesStr.split('-').map(Number)
+    const fechaInicio = cursor.quincena === 'Q1' ? esDate(year, month - 1, 1) : esDate(year, month - 1, 16)
+    const fechaFin = cursor.quincena === 'Q1' ? esDate(year, month - 1, 16) : esDate(year, month, 1)
+
+    try {
+      await prisma.quincenaCierre.create({
+        data: {
+          periodoKey,
+          nombre: `${q.nombre} · ${MESES_ES[month - 1]} ${year}`,
+          fechaInicio,
+          fechaFin,
+          ingresos: q.ingresos,
+          gastosOperativos: q.gastosOperativos,
+          gastosFijos: q.gastosFijos,
+          gastosFijosPagados: q.gastosFijosPagados,
+          gastosFijosPendientes: q.gastosFijosPendientes,
+          nominaYaRegistrada: q.nominaYaRegistrada,
+          planilla: q.planilla,
+          balance: q.balance,
+          flujoCaja: q.flujoCaja,
+        },
+      })
+    } catch (err: any) {
+      if (err?.code !== 'P2002') throw err // otra petición concurrente ya lo archivó
+    }
+
+    cursor = periodoQuincenaAnterior(cursor.mesStr, cursor.quincena)
+  }
+}
+
+router.get('/planilla', async (req: Request, res: Response) => {
+  try {
+    const { adminPin, mes } = req.query
+
+    if (!adminPin || !(await requireAdminPin(adminPin as string))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+
+    const now = esDayBucket()
+    const mesStr = (mes as string) && /^\d{4}-\d{2}$/.test(mes as string) ? (mes as string) : `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
+
+    await archivarQuincenasVencidas().catch(err => console.error('Error archivando quincenas vencidas:', err))
+
+    const data = await computePlanillaData(mesStr)
+    res.json(data)
   } catch (error) {
     console.error('Error fetching planilla:', error)
     res.status(500).json({ error: 'Failed to fetch planilla' })
+  }
+})
+
+// GET historial de quincenas ya archivadas (cerradas automáticamente)
+router.get('/planilla/historial-quincenas', async (req: Request, res: Response) => {
+  try {
+    const { adminPin } = req.query
+
+    if (!adminPin || !(await requireAdminPin(adminPin as string))) {
+      return res.status(401).json({ error: 'Invalid admin PIN' })
+    }
+
+    const historial = await prisma.quincenaCierre.findMany({ orderBy: { fechaInicio: 'desc' } })
+    res.json(historial)
+  } catch (error) {
+    console.error('Error fetching historial de quincenas:', error)
+    res.status(500).json({ error: 'Failed to fetch historial de quincenas' })
   }
 })
 
