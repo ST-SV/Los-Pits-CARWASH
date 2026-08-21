@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useApp } from '../context/useApp'
 
-type SubTab = 'historial' | 'contabilidad' | 'duenos' | 'empleados' | 'horarios' | 'catalogo' | 'auditoria' | 'config'
+type SubTab = 'historial' | 'contabilidad' | 'empleados' | 'horarios' | 'catalogo' | 'auditoria' | 'config'
 
 const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 
@@ -57,27 +57,6 @@ interface DescuentoItem {
   id: string
   monto: number
   motivo: string
-}
-
-interface DuenoAdmin {
-  id: string
-  nombre: string
-  apellido?: string | null
-  porcentajeParticipacion: number
-}
-
-interface DuenoMovimientoUI {
-  id: string
-  tipo: 'aporte' | 'retiro' | 'prestamo' | 'utilidad'
-  monto: number
-  fecha: string
-  motivo?: string | null
-  registradoPor?: string | null
-}
-
-interface DuenoMovimientosData {
-  movimientos: DuenoMovimientoUI[]
-  totales: { aportes: number; retiros: number; prestamos: number; utilidadPagada: number }
 }
 
 interface PlanillaPeriodo {
@@ -280,12 +259,6 @@ export default function Admin() {
   const [lavadoresDetalleLoading, setLavadoresDetalleLoading] = useState(false)
   const [metaEdit, setMetaEdit] = useState<{ id: string; value: string } | null>(null)
   const [empleados, setEmpleados] = useState<Empleado[]>([])
-  const [duenos, setDuenos] = useState<DuenoAdmin[]>([])
-  const [duenoSeleccionado, setDuenoSeleccionado] = useState<DuenoAdmin | null>(null)
-  const [duenoMovimientos, setDuenoMovimientos] = useState<DuenoMovimientosData | null>(null)
-  const [movimientoForm, setMovimientoForm] = useState<{ tipo: 'aporte' | 'retiro' | 'prestamo' | 'utilidad'; monto: string; motivo: string } | null>(null)
-  const [porcentajeEdit, setPorcentajeEdit] = useState<{ id: string; value: string } | null>(null)
-  const [nuevoDuenoForm, setNuevoDuenoForm] = useState<{ nombre: string; apellido: string } | null>(null)
   const [catalogo, setCatalogo] = useState<Catalogo | null>(null)
   const [auditoria, setAuditoria] = useState<AuditEntry[] | null>(null)
   const [horariosData, setHorariosData] = useState<HorariosData | null>(null)
@@ -418,11 +391,6 @@ export default function Admin() {
     setGastoFijoForm(null)
     setShowResetConfirm(false)
     setResetConfirmText('')
-    setDuenoSeleccionado(null)
-    setDuenoMovimientos(null)
-    setMovimientoForm(null)
-    setPorcentajeEdit(null)
-    setNuevoDuenoForm(null)
   }, [unlocked, tab])
 
   useEffect(() => {
@@ -557,139 +525,6 @@ export default function Admin() {
     }
   }
 
-  const handleSelectDueno = async (d: DuenoAdmin) => {
-    setDuenoSeleccionado(d)
-    setDuenoMovimientos(null)
-    setMovimientoForm(null)
-    try {
-      const res = await fetch(`/api/admin/duenos/${d.id}/movimientos?adminPin=${encodeURIComponent(adminPin)}`)
-      if (!res.ok) throw new Error('Error al cargar movimientos')
-      const data = await res.json()
-      setDuenoMovimientos(data)
-    } catch (e: any) {
-      toast(e.message, 'error')
-    }
-  }
-
-  const reloadDuenoMovimientos = async (duenoId: string) => {
-    try {
-      const res = await fetch(`/api/admin/duenos/${duenoId}/movimientos?adminPin=${encodeURIComponent(adminPin)}`)
-      if (!res.ok) throw new Error('Error al cargar movimientos')
-      const data = await res.json()
-      setDuenoMovimientos(data)
-    } catch (e: any) {
-      toast(e.message, 'error')
-    }
-  }
-
-  const handleAddMovimiento = async () => {
-    if (!duenoSeleccionado || !movimientoForm) return
-    const monto = parseFloat(movimientoForm.monto)
-    if (isNaN(monto) || monto <= 0) {
-      toast('Monto inválido', 'error')
-      return
-    }
-    setSubmitting(true)
-    try {
-      const res = await fetch(`/api/admin/duenos/${duenoSeleccionado.id}/movimiento`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminPin, tipo: movimientoForm.tipo, monto, motivo: movimientoForm.motivo || undefined }),
-      })
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error || 'Error al registrar el movimiento')
-      }
-      toast('Movimiento registrado', 'success')
-      setMovimientoForm(null)
-      reloadDuenoMovimientos(duenoSeleccionado.id)
-    } catch (e: any) {
-      toast(e.message, 'error')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const handleDeleteMovimiento = async (m: DuenoMovimientoUI) => {
-    const motivo = prompt(`¿Por qué se elimina este movimiento de ${m.tipo} por $${m.monto.toFixed(2)}? (requerido)`)
-    if (!motivo) return
-    setSubmitting(true)
-    try {
-      const res = await fetch(`/api/admin/duenos/movimiento/${m.id}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminPin, motivo }),
-      })
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error || 'Error al eliminar el movimiento')
-      }
-      toast('Movimiento eliminado', 'success')
-      if (duenoSeleccionado) reloadDuenoMovimientos(duenoSeleccionado.id)
-    } catch (e: any) {
-      toast(e.message, 'error')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const handleUpdatePorcentaje = async () => {
-    if (!duenoSeleccionado || !porcentajeEdit) return
-    const pct = parseFloat(porcentajeEdit.value)
-    if (isNaN(pct) || pct < 0 || pct > 100) {
-      toast('Porcentaje inválido', 'error')
-      return
-    }
-    setSubmitting(true)
-    try {
-      const res = await fetch(`/api/admin/duenos/${duenoSeleccionado.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminPin, porcentajeParticipacion: pct }),
-      })
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error || 'Error al actualizar la participación')
-      }
-      const updated = await res.json()
-      setDuenos(prev => prev.map(s => (s.id === updated.id ? { ...s, porcentajeParticipacion: updated.porcentajeParticipacion } : s)))
-      setDuenoSeleccionado(prev => (prev ? { ...prev, porcentajeParticipacion: updated.porcentajeParticipacion } : prev))
-      setPorcentajeEdit(null)
-      toast('Participación actualizada', 'success')
-    } catch (e: any) {
-      toast(e.message, 'error')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const handleCreateDueno = async () => {
-    if (!nuevoDuenoForm || !nuevoDuenoForm.nombre.trim()) {
-      toast('Nombre requerido', 'error')
-      return
-    }
-    setSubmitting(true)
-    try {
-      const res = await fetch('/api/admin/duenos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminPin, nombre: nuevoDuenoForm.nombre.trim(), apellido: nuevoDuenoForm.apellido.trim() || undefined, porcentajeParticipacion: 0 }),
-      })
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error || 'Error al crear el dueño')
-      }
-      const created = await res.json()
-      setDuenos(prev => [...prev, created])
-      setNuevoDuenoForm(null)
-      toast('Dueño creado', 'success')
-    } catch (e: any) {
-      toast(e.message, 'error')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
   const handleDeleteGastoFijo = async (id: string) => {
     if (!confirm('¿Eliminar este gasto fijo?')) return
     setSubmitting(true)
@@ -817,11 +652,6 @@ export default function Admin() {
     } else if (t === 'contabilidad') {
       loadPlanilla(mesPlanilla)
       loadGastosFijos()
-    } else if (t === 'duenos') {
-      fetch(`/api/admin/duenos?adminPin=${encodeURIComponent(adminPin)}`)
-        .then(r => r.json())
-        .then(setDuenos)
-        .catch(onLoadError)
     } else if (t === 'empleados') {
       fetch(`/api/admin/empleados?adminPin=${encodeURIComponent(adminPin)}`)
         .then(r => r.json())
@@ -1232,7 +1062,7 @@ export default function Admin() {
   return (
     <div className="admin">
       <div className="subnav">
-        {(['historial', 'contabilidad', 'duenos', 'empleados', 'horarios', 'catalogo', 'auditoria', 'config'] as SubTab[]).map(t => (
+        {(['historial', 'contabilidad', 'empleados', 'horarios', 'catalogo', 'auditoria', 'config'] as SubTab[]).map(t => (
           <button key={t} className={`subnav-btn ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
             {t}
           </button>
@@ -1622,185 +1452,6 @@ export default function Admin() {
                     </div>
                   </div>
                 </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      {tab === 'duenos' && (
-        <div>
-          <div className="action-row">
-            {!nuevoDuenoForm ? (
-              <button className="btn-primary" onClick={() => setNuevoDuenoForm({ nombre: '', apellido: '' })}>
-                + Nuevo dueño
-              </button>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
-                <input
-                  type="text"
-                  placeholder="Nombre"
-                  value={nuevoDuenoForm.nombre}
-                  onChange={e => setNuevoDuenoForm({ ...nuevoDuenoForm, nombre: e.target.value })}
-                />
-                <input
-                  type="text"
-                  placeholder="Apellido (opcional)"
-                  value={nuevoDuenoForm.apellido}
-                  onChange={e => setNuevoDuenoForm({ ...nuevoDuenoForm, apellido: e.target.value })}
-                />
-                <div className="action-row">
-                  <button className="btn-primary" disabled={submitting} onClick={handleCreateDueno}>
-                    Guardar
-                  </button>
-                  <button className="btn-secondary" onClick={() => setNuevoDuenoForm(null)}>
-                    Cancelar
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {duenos.length === 0 ? (
-            <p className="empty-state">No hay dueños registrados.</p>
-          ) : (
-            <>
-              <div className="list">
-                {duenos.map(s => (
-                  <div
-                    key={s.id}
-                    className="list-row static"
-                    onClick={() => handleSelectDueno(s)}
-                    style={{ cursor: 'pointer', borderColor: duenoSeleccionado?.id === s.id ? 'var(--yellow)' : undefined }}
-                  >
-                    <div className="main">
-                      <div className="title">{s.nombre} {s.apellido || ''}</div>
-                      <div className="sub">Participación: {s.porcentajeParticipacion}%</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {!duenoSeleccionado ? (
-                <p className="empty-state">Seleccioná un dueño para ver sus movimientos.</p>
-              ) : !duenoMovimientos ? (
-                <p className="empty-state">Cargando...</p>
-              ) : (
-                <>
-                  <div className="detail-card">
-                    <div className="dt-row">
-                      <span className="k">Participación</span>
-                      {porcentajeEdit && porcentajeEdit.id === duenoSeleccionado.id ? (
-                        <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                          <input
-                            type="number"
-                            style={{ width: 70 }}
-                            value={porcentajeEdit.value}
-                            onChange={e => setPorcentajeEdit({ id: duenoSeleccionado.id, value: e.target.value })}
-                          />
-                          <button className="btn-primary" disabled={submitting} onClick={handleUpdatePorcentaje}>
-                            Guardar
-                          </button>
-                          <button className="btn-secondary" onClick={() => setPorcentajeEdit(null)}>
-                            Cancelar
-                          </button>
-                        </span>
-                      ) : (
-                        <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                          <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{duenoSeleccionado.porcentajeParticipacion}%</span>
-                          <button
-                            className="btn-secondary"
-                            onClick={() => setPorcentajeEdit({ id: duenoSeleccionado.id, value: String(duenoSeleccionado.porcentajeParticipacion) })}
-                          >
-                            Editar
-                          </button>
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="stat-grid">
-                    <div className="stat-card">
-                      <div className="label">Aportes</div>
-                      <div className="value green">${duenoMovimientos.totales.aportes.toFixed(2)}</div>
-                    </div>
-                    <div className="stat-card">
-                      <div className="label">Retiros</div>
-                      <div className="value red">${duenoMovimientos.totales.retiros.toFixed(2)}</div>
-                    </div>
-                    <div className="stat-card">
-                      <div className="label">Préstamos</div>
-                      <div className="value red">${duenoMovimientos.totales.prestamos.toFixed(2)}</div>
-                    </div>
-                    <div className="stat-card">
-                      <div className="label">Utilidad pagada</div>
-                      <div className="value red">${duenoMovimientos.totales.utilidadPagada.toFixed(2)}</div>
-                    </div>
-                  </div>
-
-                  <div className="action-row">
-                    {!movimientoForm ? (
-                      <button className="btn-primary" onClick={() => setMovimientoForm({ tipo: 'aporte', monto: '', motivo: '' })}>
-                        + Nuevo movimiento
-                      </button>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
-                        <select
-                          value={movimientoForm.tipo}
-                          onChange={e => setMovimientoForm({ ...movimientoForm, tipo: e.target.value as any })}
-                        >
-                          <option value="aporte">Aporte</option>
-                          <option value="retiro">Retiro</option>
-                          <option value="prestamo">Préstamo</option>
-                          <option value="utilidad">Utilidad pagada</option>
-                        </select>
-                        <input
-                          type="number"
-                          placeholder="Monto"
-                          value={movimientoForm.monto}
-                          onChange={e => setMovimientoForm({ ...movimientoForm, monto: e.target.value })}
-                        />
-                        <input
-                          type="text"
-                          placeholder="Motivo (opcional)"
-                          value={movimientoForm.motivo}
-                          onChange={e => setMovimientoForm({ ...movimientoForm, motivo: e.target.value })}
-                        />
-                        <div className="action-row">
-                          <button className="btn-primary" disabled={submitting} onClick={handleAddMovimiento}>
-                            Guardar
-                          </button>
-                          <button className="btn-secondary" onClick={() => setMovimientoForm(null)}>
-                            Cancelar
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="detail-card">
-                    {duenoMovimientos.movimientos.length === 0 ? (
-                      <div className="dt-row">
-                        <span className="k">Sin movimientos registrados</span>
-                      </div>
-                    ) : (
-                      duenoMovimientos.movimientos.map(m => (
-                        <div key={m.id} className="dt-row">
-                          <span className="k">
-                            {new Date(m.fecha).toLocaleDateString()} · {m.tipo} {m.motivo ? `· ${m.motivo}` : ''}
-                            {m.registradoPor ? ` · ${m.registradoPor}` : ''}
-                          </span>
-                          <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                            <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>${m.monto.toFixed(2)}</span>
-                            <button className="btn-danger" onClick={() => handleDeleteMovimiento(m)}>
-                              Eliminar
-                            </button>
-                          </span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </>
               )}
             </>
           )}
